@@ -26,12 +26,21 @@
 IPAddress PM_LAN_BROADCAST_IP(192, 168, 32, 12);
 #define   PM_LAN_BROADCAST_PORT  23127
 
+
+
+//CHANGE THESE SETTINGS
 //Specify your WIFI settings:
-#define WIFI_SSID "CCNet2"
-#define WIFI_PASS "chrisandcarol"
-#define IP_FOR_ST "192.168.1.199"
+#define WIFI_SSID "YOUR_SSID_HERE"
+#define WIFI_PASS "YOUR_WIFI_KEY_HERE"
+#define IP_FOR_ST "THE_STATIC_IP_FOR_ST_HERE"
+
+//YOU MIGHT NEED TO CHANGE THESE SETTINGS, THOUGH UNLIKELY
+//The ports below are unlikely to need changing, however they are here if needed
+//Ensure they are set to the same - I was lazy and one is a STRING and one is an INT
 #define PORT_FOR_ST "39500"
 const int httpPort = 39500;
+
+
 
 #define ALARM_STATE_CHANGE 0
 #define ZONE_STATE_CHANGE 1
