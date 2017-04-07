@@ -1,0 +1,74 @@
+/*
+ *  Visonic alarm integration to give simulated zones
+ */
+
+definition(
+    name: "Visonic Zone Manager",
+    namespace: "cjcharles0",
+    author: "Chris Charles <cjcharles@gmail.com>",
+    description: "SmartApp to update each of the simulated devices based on Visonic zone information",
+    category: "My Apps",
+    iconUrl: "http://www.astronnetworks.com/resources/photos/2014-08-19/visonic-logo.jpg",
+    iconX2Url: "http://www.astronnetworks.com/resources/photos/2014-08-19/visonic-logo.jpg",
+    oauth: false
+)
+
+import groovy.json.JsonBuilder
+
+preferences {
+	section("Alarm Panel:") {
+		input "paneldevice", "capability.polling", title: "Alarm Panel Device", multiple: false, required: true
+	}
+		section("Zone Devices:") {
+		input "zonedevices", "capability.sensor", title: "Visonic Zone Devices", multiple: true, required: false
+	}
+}
+
+
+def installed() {
+	log.debug "Installed with settings: ${settings}"
+	//Subscribe to relevant events from the paneldevice
+	initialize()
+}
+  
+def initialize() {
+	//Cycle through a max of 30 zones (which is Visonic limit)
+	for (def curzone = 1; curzone <= 30; curzone++) {
+    	//Try and find a selected device with the correct DeviceID
+    	def curzonedevice = zonedevices.find { it.deviceNetworkId == "visoniczone${curzone}" }
+		if (curzonedevice) {
+        	//We have a device that matches the name so subscribe to the relevant tile on the alarm device
+        	log.debug "Zone " + curzone + ": " + curzonedevice
+    		subscribe(paneldevice, "visonic"+curzone, rsmHandler)
+        }
+    }
+}
+
+def updated() {
+    log.debug "Updated with settings: ${settings}"
+    //Remove all subscribed devices
+    unsubscribe()
+    //Now add them again
+    initialize()
+}
+
+def rsmHandler(evt) {
+    //First correct the tile name (visonic#) to the simulated device name (visoniczone#)
+    def zoneText = evt.name.replaceAll('visonic','visoniczone')
+    log.debug "${evt.name} is ${evt.value} with zone ${zoneText}"
+    //Now try to find a device matching the simulated device name
+	def zonedevice = zonedevices.find { it.deviceNetworkId == zoneText }
+
+    if (zonedevice) {
+        log.debug "${evt.name} is now ${evt.value} (sending to ${zonedevice})"
+		//Set the zonedevice inactivity event
+		zonedevice.(evt.value)()
+        //If the command was 'active' then automatically send an 'inactive' after 5 seconds
+        if (evt.value == "active") {
+        	//First to the Visonic Alarm tile (need to run command sendInactive(zone))
+			runIn(70, paneldevice.sendInactive(evt.name))
+            //We dont need to update the simulated device since after changing the panel it will be passed back to this app through the subscription
+            //runIn(20, zonedevice.inactive())
+		}
+    }
+}
