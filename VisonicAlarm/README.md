@@ -7,6 +7,7 @@ Some important points to note:
 2) It is currently a bit manual to get all devices set up, hence I strongly advise you make SmartThings and the Wemos have a fixed IP address in your router config.
 3) I am using Arduino Studio 1.6.9 and version 2.3.0 of the ESP8266 board library. There is no reason I can think of, why it would not work with another version, but if you are having problems please ensure you use this version.
 4) The motion sensors are a bit hard to work with as there is no notification that motion has stopped, hence without the SmartApp installed at the bottom of the instructions you will find the devices never change from 'Active'. I am currently implementing a solution on the Wemos.
+5) If your Visonic Powermax is complaining about 'comms fail' and 'system trouble' after replacing the Powerlink module then go into installer settings, remove the ip address to send information to (make it 0.0.0.0). Then you need to disconnect the alarm power and its battery. After waiting for 30 seconds you can connect it back up and your alarm will no longer show an error message.
 
 The key steps to follow when setting up the integrations are as follows:
 1) First set up Arduino Studio and add the Wemos D1 R2 (go to Tools menu, then Boards, then board manager and search for ESP8266)
