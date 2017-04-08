@@ -10,7 +10,7 @@ Some important points to note:
 
 The key steps to follow when setting up the integrations are as follows:
 1) First set up Arduino Studio and add the Wemos D1 R2 (go to Tools menu, then Boards, then board manager and search for ESP8266)
-2) Confirm that you now have the required ESP8266 libraries installed (if not you will need to add them from Sketch/Include Libraries/Manage Libraries)
+2) Confirm that you now have the required ESP8266 libraries installed (if not you will need to add them from Sketch/Include Libraries/Manage Libraries - you might need to add them through (File > Preferences > towards the bottom of the window, copy this URL into the “Additional Board Manager URLs” text box: http://arduino.esp8266.com/stable/package_esp8266com_index.json)
 3) Connect the Wemos D1 R2 to your computer and ensure the drivers are correct in order for it to show up in Arduino Studio
 4) Add the PMAX library folder (4 files) to Arduino studio (the Libraries folder is normally in MyDocuments/Arduino/Libraries)
 5) Create a sketch and call is whatever you like (mine is called 'PowerMaxEsp8266'). Copy the Arduino code in this folder into your sketch and update the settings at the top of the sketch for your personal WiFi and the IP address of SmartThings (under the heading //CHANGE THESE SETTINGS)
