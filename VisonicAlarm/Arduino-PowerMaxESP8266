@@ -11,7 +11,7 @@
 //Telnet allows to see debug logs via network, it allso allows CONTROL of the system if PM_ALLOW_CONTROL is defined
 #define PM_ENABLE_TELNET_ACCESS
 
-//This enables control over your system, when commented out, alarm is 'read only' (esp will read the state, but will never ardm/disarm)
+//This enables control over your system, when commented out, alarm is 'read only' (esp will read the state, but will never arm/disarm)
 #define PM_ALLOW_CONTROL
 
 //This enables flashing of ESP via OTA (WiFI)
@@ -30,9 +30,9 @@ IPAddress PM_LAN_BROADCAST_IP(192, 168, 32, 12);
 
 //CHANGE THESE SETTINGS
 //Specify your WIFI settings:
-#define WIFI_SSID "YOUR_SSID_HERE"
-#define WIFI_PASS "YOUR_WIFI_KEY_HERE"
-#define IP_FOR_ST "THE_STATIC_IP_FOR_ST_HERE"
+#define WIFI_SSID "CCNet2"
+#define WIFI_PASS "chrisandcarol"
+#define IP_FOR_ST "192.168.1.199"
 
 //YOU MIGHT NEED TO CHANGE THESE SETTINGS, THOUGH UNLIKELY
 //The ports below are unlikely to need changing, however they are here if needed
@@ -44,6 +44,9 @@ const int httpPort = 39500;
 
 #define ALARM_STATE_CHANGE 0
 #define ZONE_STATE_CHANGE 1
+int zones_enrolled_count = MAX_ZONE_COUNT;
+int max_zone_id_enrolled = MAX_ZONE_COUNT;
+int inactivity_seconds = 5;
 
 
 void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsigned char zoneID, int zone_or_system_update) {
@@ -106,13 +109,14 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
 class MyPowerMax : public PowerMaxAlarm
 {
 public:
+    bool zone_motion[MAX_ZONE_COUNT+1] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
     virtual void OnStatusChange(const PlinkBuffer  * Buff)
     {
         //call base class implementation first, this will send ACK back and upate internal state.
         PowerMaxAlarm::OnStatusChange(Buff);
 
         //Now send update to ST and use zone 0 as system state not zone
-        const unsigned char zoneId = 0;
+        unsigned char zoneId = 0;
         SendJSONMessage(GetStrPmaxLogEvents(Buff->buffer[4]), GetStrPmaxEventSource(Buff->buffer[3]), zoneId, ALARM_STATE_CHANGE);
         //now our customization:
         switch(Buff->buffer[4])
@@ -132,7 +136,6 @@ public:
             break;
         }        
     }
-    
     virtual void OnStatusUpdatePanel(const PlinkBuffer  * Buff)
     {
         //call base class implementation first, to log the event and update states.
@@ -143,18 +146,34 @@ public:
               const unsigned char zoneId = Buff->buffer[5];
               ZoneEvent eventType = (ZoneEvent)Buff->buffer[6];
               
-              SendJSONMessage(this->getZoneName(zoneId), GetStrPmaxZoneEventTypes(Buff->buffer[6]), zoneId, ZONE_STATE_CHANGE);  
+              SendJSONMessage(this->getZoneName(zoneId), GetStrPmaxZoneEventTypes(Buff->buffer[6]), zoneId, ZONE_STATE_CHANGE);
+
+              //If it is a Violated (motion) event then set zone activated
+              if (eventType = ZE_Violated) {
+                  zone_motion[zoneId] = true;
+              }
         }
     }
-    
-    int ZoneIDsEnrolled() {
+    void UpdateZonesEnrolledCount() {
         int counter = 0;
         for(int ix=1; ix<=MAX_ZONE_COUNT; ix++) {
+            zone_motion[ix] = false;
             if (zone[ix].enrolled) {
                 counter++;
+                max_zone_id_enrolled = ix;
             }
         }
-        return counter;
+        zones_enrolled_count = counter;
+    }
+    void CheckInactivityTimers() {
+        for(int ix=1; ix<=max_zone_id_enrolled; ix++) {
+            if (zone_motion[ix]) {
+                if (os_getCurrentTimeSec() - zone[ix].lastEventTime > inactivity_seconds) {
+                    zone_motion[ix]= false;
+                    SendJSONMessage(this->getZoneName(ix), "No Motion", ix, ZONE_STATE_CHANGE);  
+                }
+            }
+        }
     }
 
 };
@@ -258,6 +277,11 @@ public:
 
 void handleStatus() {
   //This sends full system status including status/panel PIN codes/zones/... etc
+  
+  //First update zone count to reduce checking on unused zones (not actually needed in this function but called often so a good place to put it)
+  pm.UpdateZonesEnrolledCount();
+
+  //Now collect all status information and send it to the user
   WiFiClient client = server.client();
   
   client.print("HTTP/1.1 200 OK\r\n");
@@ -290,26 +314,33 @@ void handleRefresh() {
 
 void handleGetZoneNames() {
   //This returns all zone names and types
-  int totalZones = 0;
-  totalZones = pm.ZoneIDsEnrolled();
+
+  //First update zone count to reduce checking on unused zones
+  pm.UpdateZonesEnrolledCount();
+
+  //Now setup the webserver connection and JSON creation
   WiFiClient client = server.client();
 
   client.print("HTTP/1.1 200 OK\r\n");
   client.print("Content-Type: text/plain\r\n");
   client.print("Connection: close\r\n\r\n{\"namedzonesenrolled\":");
-  client.print(totalZones);
+  client.print(zones_enrolled_count);
+  client.print(",\r\n\"maxzoneid\":");
+  client.print(max_zone_id_enrolled);
   //client.print(",\r\n");
-  for(int ix=1; ix<totalZones; ix++) {
-      //DEBUG(LOG_NOTICE,pm.getZoneName(ix))
-      client.print(",\r\n\"zone");
-      client.print(ix);
-      client.print("name\":\"");
-      client.print(pm.getZoneName(ix));
-      //client.print("\",\r\n\"zone");
-      //client.print(ix);
-      //client.print("type\":\"");
-      //client.print(pm.zone[ix].zoneTypeStr);
-      client.print("\"");
+  for(int ix=1; ix<max_zone_id_enrolled; ix++) {
+     if (pm.getZoneName(ix) != "Unknown") {
+        //DEBUG(LOG_NOTICE,pm.getZoneName(ix))
+        client.print(",\r\n\"zone");
+        client.print(ix);
+        client.print("name\":\"");
+        client.print(pm.getZoneName(ix));
+        //client.print("\",\r\n\"zone");
+        //client.print(ix);
+        //client.print("type\":\"");
+        //client.print(pm.zone[ix].zoneTypeStr);
+        client.print("\"");
+     }
   }
   client.print("}");
 }
@@ -317,7 +348,7 @@ void handleGetZoneNames() {
 void handleConfig() {
   
   //Parse the response into different value
-  String payload = server.arg("test");
+  String payload = server.arg("inactivity_seconds");
 
   //First respond to the poster
   WiFiClient client = server.client();
@@ -329,19 +360,6 @@ void handleConfig() {
   client.print("\"}\r\n");
   client.stop();
 
-  //Then set up a new connection to post to SmartThings
-  WiFiClient client2;
-  if (!client2.connect(IP_FOR_ST, httpPort)) {
-    Serial.println("connection failed");
-    return;
-  }
-  client2.print("POST / HTTP/1.1\r\n"); 
-  client2.print("Content-Type: text/plain\r\n");
-  client2.print("Connection: close\r\n");
-  client2.print("\r\n{\"testbob\":\"");
-  client2.print(payload.c_str());
-  client2.print("\"}\r\n");
-  client2.stop();
 }
 
 void handleArmAway() {
@@ -678,6 +696,9 @@ void loop(void){
 #endif
 
   server.handleClient();
+
+  //Here we also check if we need to send any inactivity messages to ST
+  pm.CheckInactivityTimers();
 
   static unsigned long lastMsg = 0;
   if(serialHandler(&pm) == true)
