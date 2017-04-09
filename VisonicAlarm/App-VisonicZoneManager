@@ -63,6 +63,5 @@ def rsmHandler(evt) {
         log.debug "${evt.name} is now ${evt.value} (sending to ${zonedevice})"
 		//Set the zonedevice event
 		zonedevice.(evt.value)()
-		}
     }
 }
