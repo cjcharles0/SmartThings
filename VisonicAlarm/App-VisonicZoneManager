@@ -61,14 +61,8 @@ def rsmHandler(evt) {
 
     if (zonedevice) {
         log.debug "${evt.name} is now ${evt.value} (sending to ${zonedevice})"
-		//Set the zonedevice inactivity event
+		//Set the zonedevice event
 		zonedevice.(evt.value)()
-        //If the command was 'active' then automatically send an 'inactive' after 5 seconds
-        if (evt.value == "active") {
-        	//First to the Visonic Alarm tile (need to run command sendInactive(zone))
-			runIn(70, paneldevice.sendInactive(evt.name))
-            //We dont need to update the simulated device since after changing the panel it will be passed back to this app through the subscription
-            //runIn(20, zonedevice.inactive())
 		}
     }
 }
