@@ -31,13 +31,11 @@ metadata {
         attribute "armaway", "string"
         attribute "armhome", "string"
         attribute "disarm", "string"
-        attribute "lastaction", "string"
         
         command "reset"
         command "VisonicArmAway"
         command "VisonicArmHome"
         command "VisonicDisarm"
-        command "sendInactive"
 	}
 
 	simulator {
@@ -184,11 +182,6 @@ def VisonicDisarm() {
     postAction("/disarm")
 }
 
-def sendInactive(zone_id){
-  log.debug "Inactive timeout for zone " + zone_id
-  sendEvent(name: zone_id, value: "inactive", displayed: true, isStateChange: true)
-}
-
 /*def configure() {
 	log.debug "configure()"
 	log.debug "Configuring Device For SmartThings Use"
@@ -279,6 +272,10 @@ def parse(description) {
 			case "Violated (Motion)":
 				log.debug "Got motion zone - " + result.zone_id
             	sendEvent(name: "visonic"+result.zone_id, value: "active", displayed: true, isStateChange: true)
+            	break
+            case "No Motion":
+				log.debug "Motion stopped in zone - " + result.zone_id
+            	sendEvent(name: "visonic"+result.zone_id, value: "inactive", displayed: true, isStateChange: true)
             	break
             case "Open":
 				log.debug "Got Open zone - " + result.zone_id
