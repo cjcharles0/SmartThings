@@ -30,9 +30,9 @@ IPAddress PM_LAN_BROADCAST_IP(192, 168, 32, 12);
 
 //CHANGE THESE SETTINGS
 //Specify your WIFI settings:
-#define WIFI_SSID "CCNet2"
-#define WIFI_PASS "chrisandcarol"
-#define IP_FOR_ST "192.168.1.199"
+#define WIFI_SSID "Your_SSID_Here"
+#define WIFI_PASS "Your_Password_Here"
+#define IP_FOR_ST "The_IP_Of_SmartThings_Hub_Here"
 
 //YOU MIGHT NEED TO CHANGE THESE SETTINGS, THOUGH UNLIKELY
 //The ports below are unlikely to need changing, however they are here if needed
