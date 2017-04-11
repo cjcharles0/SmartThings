@@ -32,13 +32,8 @@ IPAddress PM_LAN_BROADCAST_IP(192, 168, 32, 12);
 //Specify your WIFI settings:
 #define WIFI_SSID "Your_SSID_Here"
 #define WIFI_PASS "Your_Password_Here"
-#define IP_FOR_ST "The_IP_Of_SmartThings_Hub_Here"
-
-//YOU MIGHT NEED TO CHANGE THESE SETTINGS, THOUGH UNLIKELY
-//The ports below are unlikely to need changing, however they are here if needed
-//Ensure they are set to the same - I was lazy and one is a STRING and one is an INT
-#define PORT_FOR_ST "39500"
-const int httpPort = 39500;
+char IP_FOR_ST[17] = "The_IP_Of_SmartThings_Hub_Here";
+char PORT_FOR_ST[7] = "39500";
 
 
 
@@ -47,7 +42,6 @@ const int httpPort = 39500;
 int zones_enrolled_count = MAX_ZONE_COUNT;
 int max_zone_id_enrolled = MAX_ZONE_COUNT;
 int inactivity_seconds = 5;
-
 
 void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsigned char zoneID, int zone_or_system_update) {
   char message_text[600];
@@ -92,7 +86,7 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
 
   //If not connected (we shouldnt be) then connect to ST
   WiFiClient client;
-  if (!client.connect(IP_FOR_ST, httpPort)) {
+  if (!client.connect(IP_FOR_ST, atoi(PORT_FOR_ST))) {
     Serial.println("connection failed");
     return;
   }
@@ -149,7 +143,7 @@ public:
               SendJSONMessage(this->getZoneName(zoneId), GetStrPmaxZoneEventTypes(Buff->buffer[6]), zoneId, ZONE_STATE_CHANGE);
 
               //If it is a Violated (motion) event then set zone activated
-              if (eventType = ZE_Violated) {
+              if (eventType == ZE_Violated) {
                   zone_motion[zoneId] = true;
               }
         }
@@ -346,18 +340,40 @@ void handleGetZoneNames() {
 }
 
 void handleConfig() {
-  
-  //Parse the response into different value
-  String payload = server.arg("inactivity_seconds");
 
   //First respond to the poster
   WiFiClient client = server.client();
   client.print("HTTP/1.1 200 OK\r\n");
   client.print("Content-Type: text/plain\r\n");
-  client.print("Connection: close\r\n");
-  client.print("\r\n{\"testbob\":\"");
-  client.print(payload.c_str());
-  client.print("\"}\r\n");
+  client.print("Connection: close\r\n\r\n");
+  client.print("{\"update_config\":\"success\",\r\n");
+  
+  //Parse the response into different value
+  if (server.hasArg("inactivity_seconds")) {
+      inactivity_seconds = atoi(server.arg("inactivity_seconds").c_str());
+    
+      client.print("\"inactivity_seconds\":\"");
+      client.print(server.arg("inactivity_seconds").c_str());
+      client.print("\",\r\n");
+  }
+
+  if (server.hasArg("ip_for_st")) {
+      server.arg("ip_for_st").toCharArray(IP_FOR_ST, 16);
+
+      client.print("\"ip_for_st\":\"");
+      client.print(server.arg("ip_for_st").c_str());
+      client.print("\",\r\n");
+  }
+
+  if (server.hasArg("port_for_st")) {
+      server.arg("port_for_st").toCharArray(PORT_FOR_ST, 6);
+
+      client.print("\"port_for_st\":\"");
+      client.print(server.arg("port_for_st").c_str());
+      client.print("\",\r\n");
+  }
+
+  client.print("}\r\n");
   client.stop();
 
 }
