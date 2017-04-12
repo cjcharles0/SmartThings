@@ -35,7 +35,7 @@ IPAddress PM_LAN_BROADCAST_IP(192, 168, 32, 12);
 
 
 
-//Default values for SmartThings, these are only used when first booting and stored in EEPROM from first boot onwards, no need to change
+//Default values for SmartThings, no need to change - only used when first booting and stored in EEPROM from first boot onwards
 char IP_FOR_ST[17] = "192.168.1.199";
 char PORT_FOR_ST[7] = "39500";
 int inactivity_seconds = 10;
@@ -378,21 +378,19 @@ void handleGetZoneNames() {
   client.print(zones_enrolled_count);
   client.print(",\r\n\"maxzoneid\":");
   client.print(max_zone_id_enrolled);
-  //client.print(",\r\n");
+  client.print(",\r\n\"zones\":[");
   for(int ix=1; ix<=max_zone_id_enrolled; ix++) {
      if (pm.getZoneName(ix) != "Unknown") {
-        client.print(",\r\n\"zonename");
+        client.print("{\"zoneid\":");
         client.print(ix);
-        client.print("\":\"");
+        client.print(",\r\n\"zonename\":\"");
         client.print(pm.getZoneName(ix));
-        client.print("\",\r\n\"zonetype");
-        client.print(ix);
-        client.print("\":\"");
+        client.print("\",\r\n\"zonetype\":\"");
         client.print(pm.getZoneSensorType(ix));
-        client.print("\"");
+        client.print("\"},\r\n");
      }
   }
-  client.print("}");
+  client.print("]}");
 }
 
 void handleConfig() {
