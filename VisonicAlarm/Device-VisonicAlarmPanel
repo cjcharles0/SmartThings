@@ -31,11 +31,12 @@ metadata {
         attribute "armaway", "string"
         attribute "armhome", "string"
         attribute "disarm", "string"
+        attribute "lastaction", "string"
         
-        command "reset"
         command "VisonicArmAway"
         command "VisonicArmHome"
         command "VisonicDisarm"
+        command "sendInactive"
 	}
 
 	simulator {
@@ -45,6 +46,7 @@ metadata {
         
         input("password", "password", title:"Password", required:false, displayDuringSetup:true)
         input("ip", "string", title:"Visonic IP Address", description: "e.g. 192.168.1.10", required: true, displayDuringSetup: true)
+        input("inactivityseconds", "string", title:"Motion sensor inactivity timeout", description: "override the default of 10s (60s max)", required: false, displayDuringSetup: false)
 	}
 
 	tiles (scale: 2){      
@@ -76,50 +78,16 @@ metadata {
             state "active", label:"Disarmed", action:"", backgroundColor:"#00CC00"
         }
         
-		valueTile("zone1name", "visonic1name", height: 1, width: 2) {
-            state "default", label:'${currentValue}', backgroundColor:"#FFFFFF"}
-        standardTile("zone1", "visonic1", height: 1, width: 1) {
-            state "inactive", label:"Inactive", action:"", icon:""
-            state "active", label:"Active", action:"", icon:"", backgroundColor:"#00CC00"
-            state "closed", label:"Closed", action:"", icon:""
-            state "open", label:"Open", action:"", icon:"", backgroundColor:"#00CC00"
-        }
-        
-		valueTile("zone2name", "visonic2name", height: 1, width: 2) {
-            state "default", label:'${currentValue}', backgroundColor:"#FFFFFF"}
-        standardTile("zone2", "visonic2", height: 1, width: 1) {
-            state "inactive", label:"Inactive", action:"", icon:""
-            state "active", label:"Active", action:"", icon:"", backgroundColor:"#00CC00"
-            state "closed", label:"Closed", action:"", icon:""
-            state "open", label:"Open", action:"", icon:"", backgroundColor:"#00CC00"
-        }
-        
-        valueTile("zone3name", "visonic3name", height: 1, width: 2) {
-            state "default", label:'${currentValue}', backgroundColor:"#FFFFFF"}
-        standardTile("zone3", "visonic3", height: 1, width: 1) {
-            state "inactive", label:"Inactive", action:"", icon:""
-            state "active", label:"Active", action:"", icon:"", backgroundColor:"#00CC00"
-            state "closed", label:"Closed", action:"", icon:""
-            state "open", label:"Open", action:"", icon:"", backgroundColor:"#00CC00"
-        }
-        
-        valueTile("zone4name", "visonic4name", height: 1, width: 2) {
-            state "default", label:'${currentValue}', backgroundColor:"#FFFFFF"}
-        standardTile("zone4", "visonic4", height: 1, width: 1) {
-            state "inactive", label:"Inactive", action:"", icon:""
-            state "active", label:"Active", action:"", icon:"", backgroundColor:"#00CC00"
-            state "closed", label:"Closed", action:"", icon:""
-            state "open", label:"Open", action:"", icon:"", backgroundColor:"#00CC00"
-        }
-        
-        valueTile("zone5name", "visonic5name", height: 1, width: 2) {
-            state "default", label:'${currentValue}', backgroundColor:"#FFFFFF"}
-        standardTile("zone5", "visonic5", height: 1, width: 1) {
-            state "inactive", label:"Inactive", action:"", icon:""
-            state "active", label:"Active", action:"", icon:"", backgroundColor:"#00CC00"
-            state "closed", label:"Closed", action:"", icon:""
-            state "open", label:"Open", action:"", icon:"", backgroundColor:"#00CC00"
-        }
+        (1..12).each { n ->
+            valueTile("zonename$n", "visonicname$n", height: 1, width: 2) {
+                state "default", label:'${currentValue}', backgroundColor:"#FFFFFF"}
+            standardTile("zone$n", "visonic$n", height: 1, width: 1) {
+                state "inactive", label:"Inactive", action:"", icon:""
+                state "active", label:"Active", action:"", icon:"", backgroundColor:"#00CC00"
+                state "closed", label:"Closed", action:"", icon:""
+                state "open", label:"Open", action:"", icon:"", backgroundColor:"#00CC00"
+                }
+		}
         
 		standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
 			state "default", label:"", action:"refresh", icon:"st.secondary.refresh"
@@ -132,27 +100,15 @@ metadata {
         valueTile("ip", "ip", decoration: "flat", width: 2, height: 1) {
     		state "ip", label:'ST IP Addr.\r\n${currentValue}'
 		}
-        
     }
 
 	//main(["Status"])
     details(["Alarm", "VAlarmStatus", "VArmAway", "VArmHome", "VDisarm",
              
-             "zone1name", "zone1", "zone2name", "zone2", "zone3name", "zone3", "zone4name", "zone4",
-             "zone5name", "zone5", 
+             "zonename1", "zone1", "zonename2", "zone2", "zonename3", "zone3", "zonename4", "zone4",
+             "zonename5", "zone5", 
              
              "refresh", "configure", "ip"])
-
-}
-
-def installed() {
-	log.debug "installed()"
-	configure()
-}
-
-def updated() {
-	log.debug "updated()"
-    configure()
 }
 
 def VisonicArmAway() {
@@ -161,7 +117,7 @@ def VisonicArmAway() {
     sendEvent(name: "armaway", value: "changing")
     sendEvent(name: "armhome", value: "inactive", displayed: false)
     sendEvent(name: "disarm", value: "inactive", displayed: false)
-    postAction("/armaway")
+    getAction("/armaway")
 }
 
 def VisonicArmHome() {
@@ -170,7 +126,7 @@ def VisonicArmHome() {
     sendEvent(name: "armaway", value: "inactive", displayed: false)
     sendEvent(name: "armhome", value: "changing")
     sendEvent(name: "disarm", value: "inactive", displayed: false)
-    postAction("/armhome")
+    getAction("/armhome")
 }
 
 def VisonicDisarm() {
@@ -179,39 +135,56 @@ def VisonicDisarm() {
     sendEvent(name: "armaway", value: "inactive", displayed: false)
     sendEvent(name: "armhome", value: "inactive", displayed: false)
     sendEvent(name: "disarm", value: "changing")
-    postAction("/disarm")
+    getAction("/disarm")
 }
 
-/*def configure() {
-	log.debug "configure()"
-	log.debug "Configuring Device For SmartThings Use"
-    sendEvent(name: "checkInterval", value: 12 * 60, data: [protocol: "lan", hubHardwareId: device.hub.hardwareID], displayed: false)
-    def responses = []
-    if (ip != null) state.dni = setDeviceNetworkId(ip, "80")
-    state.hubIP = device.hub.getDataValue("localIP")
-    state.hubPort = device.hub.getDataValue("localSrvPortTCP")
-    responses << configureStatus()
-    //responses << configureInstant(state.hubIP, state.hubPort, powerOnState)
-    //responses << configureDefault()
-    return response(responses)
-}*/
+def sendInactive(zone_id){
+  log.debug "Inactive timeout for zone " + zone_id
+  sendEvent(name: zone_id, value: "inactive", displayed: true, isStateChange: true)
+}
 
 def configure(){
-	log.debug "Refreshing Visonic Status (zones+types)"
-    postAction("/status")
+	def cmds = []
+	log.debug "Configuring Visonic (getting zones+types, configuring IP/port/timeout)"
+    cmds << getAction("/status")
+    
+    def inactivitystring
+    if (settings.inactivityseconds == null) {
+    	inactivitystring = "&inactivity_seconds=10"
+    }
+    else if (settings.inactivityseconds.isInteger()) {
+    	inactivitystring = "&inactivity_seconds=${settings.inactivityseconds}"
+    }
+    else {
+    	inactivitystring = "&inactivity_seconds=10"
+    }
+    //log.debug inactivitystring
+    //Send the details to SmartThings
+    cmds << getAction("/config?ip_for_st=${device.hub.getDataValue("localIP")}&port_for_st=${device.hub.getDataValue("localSrvPortTCP")}${inactivitystring}")
+    return cmds
 }
 
 def refresh() {
 	log.debug "refresh()"
-    //SendEvents must be before any postAction, otherwise postAction does nothing
+    //SendEvents should be before any getAction, otherwise getAction does nothing
     sendEvent(name: "ip", value: device.hub.getDataValue("localIP")+"    Port:"+device.hub.getDataValue("localSrvPortTCP"), displayed: false)
     //Now refresh Alarm status
-    postAction("/refresh")
+    getAction("/refresh")
+}
+
+def installed() {
+	log.debug "installed()"
+	//configure()
+}
+
+def updated() {
+	log.debug "updated()"
+    configure()
 }
 
 def ping() {
-    //log.debug "ping()"
-    postAction("/ping")
+    log.debug "ping()"
+    getAction("/ping")
 }
 
 
@@ -258,7 +231,7 @@ def parse(description) {
             log.debug "Alarm Status found"}
     }
     
-    //If we receive a key containing '...from' then add it to the event log
+    //If we receive a key containing update from ('...from') then add it to the event log and update tile
 	if (result.containsKey("stat_update_from")) {
         def dateTime = new Date()
         def sensorStateChangedDate = dateTime.format("yyyy-MM-dd HH:mm", location.timeZone)
@@ -270,19 +243,19 @@ def parse(description) {
     if (result.containsKey("zone_status")) {
     	switch (result.zone_status) {
 			case "Violated (Motion)":
-				log.debug "Got motion zone - " + result.zone_id
+				//log.debug "Got motion zone - " + result.zone_id
             	sendEvent(name: "visonic"+result.zone_id, value: "active", displayed: true, isStateChange: true)
             	break
             case "No Motion":
-				log.debug "Motion stopped in zone - " + result.zone_id
+				//log.debug "Motion stopped in zone - " + result.zone_id
             	sendEvent(name: "visonic"+result.zone_id, value: "inactive", displayed: true, isStateChange: true)
             	break
             case "Open":
-				log.debug "Got Open zone - " + result.zone_id
+				//log.debug "Got Open zone - " + result.zone_id
             	sendEvent(name: "visonic"+result.zone_id, value: "open", displayed: true, isStateChange: true)
                 break
             case "Closed":
-				log.debug "Got Closed zone - " + result.zone_id
+				//log.debug "Got Closed zone - " + result.zone_id
             	sendEvent(name: "visonic"+result.zone_id, value: "closed", displayed: true, isStateChange: true)
                 break
 		}
@@ -295,7 +268,7 @@ def parse(description) {
             zonename = result."zone" + i + "name"
             zonetype = result."zone" + i + "type"
             log.debug i + " " + keyzonename + " " + zonename
-        	sendEvent(name: "visonic"+i+"name", value: "${zonename}", displayed: true, isStateChange: true)
+        	sendEvent(name: "visonicname"+i, value: "${zonename}", displayed: true, isStateChange: true)
     	}
     }*/
     
@@ -306,7 +279,7 @@ def parse(description) {
         result.enroled_zones.eachWithIndex { zone, zoneIndex -> 
             //log.debug "zone" + (zoneIndex+1) + " data: " + zone.zoneName + " = " + zone.sensorType
             //First store the Zone Names
-            sendEvent(name: "visonic"+(zoneIndex+1)+"name", value: zone.zoneName)
+            sendEvent(name: "visonicname"+(zoneIndex+1), value: zone.zoneName)
             //If it is a magnetic sensor then set it closed to start
             if ((zone.sensorType) == "Magnet") {
             	sendEvent(name: "visonic"+(zoneIndex+1), value: "closed")
@@ -319,7 +292,7 @@ def parse(description) {
     }
 }
 
-private postAction(uri){ 
+private getAction(uri){ 
   log.debug "uri ${uri}"
   updateDNI()
   
@@ -335,7 +308,7 @@ private postAction(uri){
     path: uri,
     headers: headers
   )
-  hubAction    
+  return hubAction    
 }
 
 def parseDescriptionAsMap(description) {
