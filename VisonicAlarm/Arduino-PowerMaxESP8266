@@ -31,17 +31,24 @@ IPAddress PM_LAN_BROADCAST_IP(192, 168, 32, 12);
 //CHANGE THESE SETTINGS
 //Specify your WIFI settings:
 #define WIFI_SSID "Your_SSID_Here"
-#define WIFI_PASS "Your_Password_Here"
-char IP_FOR_ST[17] = "The_IP_Of_SmartThings_Hub_Here";
+#define WIFI_PASS "Your_Pass_Here"
+
+
+
+//Default values for SmartThings, these are only used when first booting and stored in EEPROM from first boot onwards, no need to change
+char IP_FOR_ST[17] = "192.168.1.199";
 char PORT_FOR_ST[7] = "39500";
+int inactivity_seconds = 10;
 
-
+//Global variables for managing zones
+int zones_enrolled_count = MAX_ZONE_COUNT;
+int max_zone_id_enrolled = MAX_ZONE_COUNT;
 
 #define ALARM_STATE_CHANGE 0
 #define ZONE_STATE_CHANGE 1
-int zones_enrolled_count = MAX_ZONE_COUNT;
-int max_zone_id_enrolled = MAX_ZONE_COUNT;
-int inactivity_seconds = 5;
+#define EEPROM_IP_ADDR_LOC 100
+#define EEPROM_PORT_ADDR_LOC 120
+
 
 void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsigned char zoneID, int zone_or_system_update) {
   char message_text[600];
@@ -95,6 +102,26 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
   client.print(message_text);
 }
 
+void ReadEEPROMSettings() {
+    for(int ix=0; ix < sizeof(IP_FOR_ST); ix++) {
+       IP_FOR_ST[ix] = EEPROM.read(EEPROM_IP_ADDR_LOC + ix);
+    }
+
+    for(int ix=0; ix < sizeof(PORT_FOR_ST); ix++) {
+       PORT_FOR_ST[ix] = EEPROM.read(EEPROM_PORT_ADDR_LOC + ix);
+    }
+}
+
+void WriteEEPROMSettings() {
+    for(int ix=0; ix < sizeof(IP_FOR_ST); ix++) {
+        EEPROM.write(EEPROM_IP_ADDR_LOC + ix, IP_FOR_ST[ix]);
+    }
+
+    for(int ix=0; ix < sizeof(PORT_FOR_ST); ix++) {
+        EEPROM.write(EEPROM_PORT_ADDR_LOC + ix, PORT_FOR_ST[ix]);
+    }
+    EEPROM.commit();
+}
 
 //////////////////////////////////////////////////////////////////////////////////
 //NOTE: PowerMaxAlarm class should contain ONLY functionality of Powerlink
@@ -150,7 +177,7 @@ public:
     }
     void UpdateZonesEnrolledCount() {
         int counter = 0;
-        for(int ix=1; ix<=MAX_ZONE_COUNT; ix++) {
+        for(int ix=1; ix<MAX_ZONE_COUNT; ix++) {
             zone_motion[ix] = false;
             if (zone[ix].enrolled) {
                 counter++;
@@ -220,7 +247,7 @@ void handleRoot() {
   val -= minutes*60;
 
   char szTmp[PRINTF_BUF*2];
-  sprintf(szTmp, "<html>Dashboard for esp8266 controlled Visonic Powermax.<br>Uptime: %02d:%02d:%02d.%02d<br>free heap: %u<br><br>Web Commands<br><a href='/armaway' target='_blank'>Arm Away</a><br><a href='/armhome' target='_blank'>Arm Home</a><br><a href='/disarm' target='_blank'>Disarm</a><br><br>JSON Endpoints<br><a href='/status'>Alarm Status</a></html>", (int)days, (int)hours, (int)minutes, (int)val, ESP.getFreeHeap());
+  sprintf(szTmp, "<html>Dashboard for esp8266 controlled Visonic Powermax.<br>Uptime: %02d:%02d:%02d.%02d<br>free heap: %u<br><br>Web Commands<br><a href='/armaway' target='_blank'>Arm Away</a><br><a href='/armhome' target='_blank'>Arm Home</a><br><a href='/disarm' target='_blank'>Disarm</a><br><br>JSON Endpoints<br><a href='/status'>Alarm Status</a><br><a href='/settings'>Smart Things Details</a><br><a href='/getzonenames'>Get Zone Names</a><br><br>Configuration<br><a href='/config'>inactivity_seconds, ip_for_st, port_for_st</a></html>", (int)days, (int)hours, (int)minutes, (int)val, ESP.getFreeHeap());
   server.send(200, "text/html", szTmp);
 }
 
@@ -306,6 +333,23 @@ void handleRefresh() {
   client.stop();
 }
 
+void handleSettings() {
+  //This returns the current arm state in case it gets out of sync somehow
+  WiFiClient client = server.client();
+  
+  client.print("HTTP/1.1 200 OK\r\n");
+  client.print("Content-Type: text/plain\r\n");
+  client.print("Connection: close\r\n");
+  client.print("\r\n{\"ip_for_st\":\"");
+  client.print(IP_FOR_ST);
+  client.print("\",\r\n\"port_for_st\":");
+  client.print(PORT_FOR_ST);
+  client.print(",\r\n\"inactivity_seconds\":");
+  client.print((inactivity_seconds));
+  client.print("}\r\n");
+  client.stop();
+}
+
 void handleGetZoneNames() {
   //This returns all zone names and types
 
@@ -322,7 +366,7 @@ void handleGetZoneNames() {
   client.print(",\r\n\"maxzoneid\":");
   client.print(max_zone_id_enrolled);
   //client.print(",\r\n");
-  for(int ix=1; ix<max_zone_id_enrolled; ix++) {
+  for(int ix=1; ix<=max_zone_id_enrolled; ix++) {
      if (pm.getZoneName(ix) != "Unknown") {
         //DEBUG(LOG_NOTICE,pm.getZoneName(ix))
         client.print(",\r\n\"zone");
@@ -340,15 +384,15 @@ void handleGetZoneNames() {
 }
 
 void handleConfig() {
-
-  //First respond to the poster
+  //Start the response
+  bool updateEEPROM = false;
   WiFiClient client = server.client();
   client.print("HTTP/1.1 200 OK\r\n");
   client.print("Content-Type: text/plain\r\n");
   client.print("Connection: close\r\n\r\n");
   client.print("{\"update_config\":\"success\",\r\n");
   
-  //Parse the response into different value
+  //If we have received an inactivity timer variable then update it
   if (server.hasArg("inactivity_seconds")) {
       inactivity_seconds = atoi(server.arg("inactivity_seconds").c_str());
     
@@ -357,17 +401,27 @@ void handleConfig() {
       client.print("\",\r\n");
   }
 
+  //If we have received an ST IP then update as needed
   if (server.hasArg("ip_for_st")) {
-      server.arg("ip_for_st").toCharArray(IP_FOR_ST, 16);
-
+      //Check if it has changed before writing to EEPROM
+      if (server.arg("ip_for_st") != IP_FOR_ST) {
+          server.arg("ip_for_st").toCharArray(IP_FOR_ST, sizeof(IP_FOR_ST));
+          updateEEPROM = true;
+      }
+      //Respond with current value, even if not needing an update
       client.print("\"ip_for_st\":\"");
       client.print(server.arg("ip_for_st").c_str());
       client.print("\",\r\n");
   }
 
+  //If we have received an ST Port then update as needed
   if (server.hasArg("port_for_st")) {
-      server.arg("port_for_st").toCharArray(PORT_FOR_ST, 6);
-
+      //Check if it has changed before writing to EEPROM
+      if (server.arg("port_for_st") != PORT_FOR_ST) { 
+          server.arg("port_for_st").toCharArray(PORT_FOR_ST, sizeof(PORT_FOR_ST));
+          updateEEPROM = true;
+      }
+      //Respond with current value, even if not needing an update
       client.print("\"port_for_st\":\"");
       client.print(server.arg("port_for_st").c_str());
       client.print("\",\r\n");
@@ -375,6 +429,11 @@ void handleConfig() {
 
   client.print("}\r\n");
   client.stop();
+
+  //Now save the values to EEPROM if updated values received
+  if (updateEEPROM) {
+      WriteEEPROMSettings();
+  }
 
 }
 
@@ -412,6 +471,10 @@ void setup(void){
 
   Serial.begin(9600); //connect to PowerMax
 
+  //Add the EEPROM in order to save values for ST and immediately read IP and port for SmartThings
+  EEPROM.begin(512);
+  ReadEEPROMSettings();
+
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 
@@ -422,9 +485,11 @@ void setup(void){
 
   server.on("/", handleRoot);
   server.on("/status", handleStatus);
+  server.on("/settings", handleSettings);
   server.on("/refresh", handleRefresh);
   server.on("/getzonenames", handleGetZoneNames);
-  server.on("/config", HTTP_POST, handleConfig);
+  server.on("/config", handleConfig);
+  //server.on("/config", HTTP_POST, handleConfig);
   server.on("/armaway", [](){
     handleArmAway();
     server.send(200, "text/html", " {} <body> window.onload = <script> window.close() </script>; </body>");
