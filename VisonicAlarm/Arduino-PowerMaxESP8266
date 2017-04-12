@@ -157,6 +157,7 @@ public:
             break;
         }        
     }
+    
     virtual void OnStatusUpdatePanel(const PlinkBuffer  * Buff)
     {
         //call base class implementation first, to log the event and update states.
@@ -175,6 +176,17 @@ public:
               }
         }
     }
+    
+    const char* getZoneSensorType(unsigned char zoneId)
+    {
+        if(zoneId < MAX_ZONE_COUNT &&
+           zone[zoneId].enrolled)
+        {
+            return zone[zoneId].sensorType;
+        }
+        return "Unknown";
+    }
+    
     void UpdateZonesEnrolledCount() {
         int counter = 0;
         for(int ix=1; ix<MAX_ZONE_COUNT; ix++) {
@@ -186,6 +198,7 @@ public:
         }
         zones_enrolled_count = counter;
     }
+    
     void CheckInactivityTimers() {
         for(int ix=1; ix<=max_zone_id_enrolled; ix++) {
             if (zone_motion[ix]) {
@@ -368,15 +381,14 @@ void handleGetZoneNames() {
   //client.print(",\r\n");
   for(int ix=1; ix<=max_zone_id_enrolled; ix++) {
      if (pm.getZoneName(ix) != "Unknown") {
-        //DEBUG(LOG_NOTICE,pm.getZoneName(ix))
-        client.print(",\r\n\"zone");
+        client.print(",\r\n\"zonename");
         client.print(ix);
-        client.print("name\":\"");
+        client.print("\":\"");
         client.print(pm.getZoneName(ix));
-        //client.print("\",\r\n\"zone");
-        //client.print(ix);
-        //client.print("type\":\"");
-        //client.print(pm.zone[ix].zoneTypeStr);
+        client.print("\",\r\n\"zonetype");
+        client.print(ix);
+        client.print("\":\"");
+        client.print(pm.getZoneSensorType(ix));
         client.print("\"");
      }
   }
