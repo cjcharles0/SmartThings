@@ -17,10 +17,10 @@ import groovy.json.JsonBuilder
 
 preferences {
 	section("Alarm Panel:") {
-		input "paneldevice", "capability.polling", title: "Alarm Panel Device", multiple: false, required: true
+		input "paneldevice", "capability.alarm", title: "Alarm Panel Device", multiple: false, required: true
 	}
 		section("Zone Devices:") {
-		input "zonedevices", "capability.sensor", title: "Visonic Zone Devices", multiple: true, required: false
+		input "zonedevices", "capability.motion sensor", title: "Visonic Zone Devices", multiple: true, required: false
 	}
 }
 
@@ -63,5 +63,5 @@ def rsmHandler(evt) {
         log.debug "${evt.name} is now ${evt.value} (sending to ${zonedevice})"
 		//Set the zonedevice event
 		zonedevice.(evt.value)()
-    }
+	}
 }
