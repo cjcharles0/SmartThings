@@ -31,11 +31,11 @@ IPAddress PM_LAN_BROADCAST_IP(192, 168, 32, 12);
 //CHANGE THESE SETTINGS
 //Specify your WIFI settings:
 #define WIFI_SSID "Your_SSID_Here"
-#define WIFI_PASS "Your_Pass_Here"
+#define WIFI_PASS "Your_Wifi_Password_Here"
 
 
 
-//Default values for SmartThings, no need to change - only used when first booting and stored in EEPROM from first boot onwards
+//Default values for SmartThings, these are only used when first booting and stored in EEPROM from first boot onwards, no need to change
 char IP_FOR_ST[17] = "192.168.1.199";
 char PORT_FOR_ST[7] = "39500";
 int inactivity_seconds = 10;
