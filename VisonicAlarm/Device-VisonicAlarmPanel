@@ -20,10 +20,8 @@ import groovy.json.JsonSlurper
 
 metadata {
 	definition (name: "Visonic Alarm Panel", namespace: "cjcharles0", author: "Chris Charles") {
-		capability "Contact Sensor"
-		capability "Sensor"
 		capability "Refresh"
-        capability "Configuration"
+        //capability "Configuration"
 		capability "Alarm"
         capability "Polling"
         
@@ -37,6 +35,8 @@ metadata {
         command "VisonicArmHome"
         command "VisonicDisarm"
         command "sendInactive"
+        command "updateZonesNS"
+        
 	}
 
 	simulator {
@@ -96,19 +96,25 @@ metadata {
         standardTile("configure", "device.configure", inactiveLabel: false, width: 1, height: 1, decoration: "flat") {
 			state "configure", label:'', action:"configure", icon:"st.secondary.configure"
 		}
+       
+        standardTile("customzones", "device.zoneupdate", inactiveLabel: false, width: 1, height: 1, decoration: "flat") {
+			state "configure", label:'Zone Names', action:"updateZonesNS"
+		}
 
         valueTile("ip", "ip", decoration: "flat", width: 2, height: 1) {
     		state "ip", label:'ST IP Addr.\r\n${currentValue}'
 		}
     }
 
-	//main(["Status"])
+	main(["Alarm"])
     details(["Alarm", "VAlarmStatus", "VArmAway", "VArmHome", "VDisarm",
              
+             // Add all your zones here (name first then the zone)- e.g. add "zonename6", "zone6"
              "zonename1", "zone1", "zonename2", "zone2", "zonename3", "zone3", "zonename4", "zone4",
              "zonename5", "zone5", 
              
              "refresh", "configure", "ip"])
+				// Add "customzones" as a tile if your zones are not sequentially numbered
 }
 
 def VisonicArmAway() {
@@ -143,6 +149,11 @@ def sendInactive(zone_id){
   sendEvent(name: zone_id, value: "inactive", displayed: true, isStateChange: true)
 }
 
+def updateZonesNS(){
+	log.debug "Running non-sequential zone name update"
+    getAction("/getzonenames")
+}
+    
 def configure(){
 	def cmds = []
 	log.debug "Configuring Visonic (getting zones+types, configuring IP/port/timeout)"
@@ -261,23 +272,27 @@ def parse(description) {
 		}
     }
     
-    //Not using this code any more as have been able to do it in the status page below
-    /*if (result.containsKey("namedzonesenrolled")) {
-        def i
-    	for (i = 1; i < result.namedzonesenrolled; i++) {
-            zonename = result."zone" + i + "name"
-            zonetype = result."zone" + i + "type"
-            log.debug i + " " + keyzonename + " " + zonename
-        	sendEvent(name: "visonicname"+i, value: "${zonename}", displayed: true, isStateChange: true)
+    //This code will pull zone information out of the /getzonenamespage (and allows for zones not in order)
+    if (result.containsKey("maxzoneid")) {
+    	for (def curzone in result.zones) {
+        	//log.debug curzone.zoneid + " - " + curzone.zonename + " - " + curzone.zonetype
+            sendEvent(name: "visonicname"+(curzone.zoneid), value: curzone.zonename)
+            //If it is a magnetic sensor then set it closed to start
+            if (curzone.zonetype == "Magnet") {
+            	sendEvent(name: "visonic"+(curzone.zoneid), value: "closed")
+            }
+            //If it is a motion sensor the set it inactive first
+            if (curzone.zonetype == "Motion") {
+            	sendEvent(name: "visonic"+(curzone.zoneid), value: "inactive")
+            }
     	}
-    }*/
+    }
     
-    //Received zone information from Visonic
+    //This zone code is quicker and more efficient as /status loads quickly, but requires sequential zone IDs
     if (result.containsKey("enroled_zones")) {
     	log.debug "Configuring zone names and types"
 		//Iterate through each of the zones
         result.enroled_zones.eachWithIndex { zone, zoneIndex -> 
-            //log.debug "zone" + (zoneIndex+1) + " data: " + zone.zoneName + " = " + zone.sensorType
             //First store the Zone Names
             sendEvent(name: "visonicname"+(zoneIndex+1), value: zone.zoneName)
             //If it is a magnetic sensor then set it closed to start
