@@ -10,11 +10,28 @@ pmax	KEYWORD1
 FixedSizeQueue	KEYWORD1
 MemoryMap	KEYWORD1
 
+
 #######################################
 # Methods and Functions (KEYWORD2)
 #######################################
+
+OnStatusChange	KEYWORD2
+OnStatusUpdatePanel	KEYWORD2
+GetStrPmaxEventSource	KEYWORD2
+GetStrPmaxLogEvents	KEYWORD2
+GetStrPmaxZoneEventTypes	KEYWORD2
+GetStrPmaxSystemStatus	KEYWORD2
+getZoneName	KEYWORD2
+sendCommand	KEYWORD2
 
 
 #######################################
 # Constants (LITERAL1)
 #######################################
+
+MAX_ZONE_COUNT	LITERAL1
+ALARM_STATE_CHANGE	LITERAL1
+ZONE_STATE_CHANGE	LITERAL1
+EEPROM_IP_ADDR_LOC	LITERAL1
+EEPROM_PORT_ADDR_LOC	LITERAL1
+
