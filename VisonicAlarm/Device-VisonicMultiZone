@@ -24,7 +24,7 @@ metadata {
 		command "inactive"
 		command "active"
 		command "open"
-        command "close"
+        	command "close"
 		command "closed"
 	}
 
