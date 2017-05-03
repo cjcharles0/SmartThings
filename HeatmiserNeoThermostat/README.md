@@ -11,3 +11,6 @@ Instructions for setting up a Heatmiser Neo Thermostat
 9) Open the new Bridge device on your phone and go into settings. Here you should add the IP address for your NeoHub (get it from your router and make it a fixed DHCP reservation), and the IP address of your NodeMCU (the IP address noted down above). I also suggest adding a Pre and/or Post name in the settings, this will ensure that your thermostats all start with Thermostat (or similar) or finish with Thermostat (or similar) - this will make them easier to identify in your device list.
 10) Inside the Hub device you can now press Refresh and you should see the IP address boxes all populate. Now you can press Configure and this will send all information to the NodeMCU.
 11) Finally you can now press Create Thermostat devices and it will create the required thermostats for each Thermostat that you have following the naming information in the settings panel.
+
+
+Donations would be much appreciated at paypal.me/cjcharles if you have enjoyed/benefited from this Device Handler as it has taken a fair while to pull together (and expense of buying new Thermostats!! :) ).
