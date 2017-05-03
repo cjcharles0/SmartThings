@@ -1,6 +1,6 @@
 Instructions for setting up a Heatmiser Neo Thermostat
 
-1) Connect the Node MCU to your computer and ensure that it appears in Windows Device Manager as a COM port. Take a note of this OM port 
+1) Connect the Node MCU to your computer and ensure that it appears in Windows Device Manager as a COM port. Take a note of this COM port 
 2) Download the bin file and ESPtool.exe into the same folder and open a command prompt to this folder. (once the folder is open in Windows Explorer then hold shift and right click the background - that will allow you to 'Open a command prompt here')
 3) Run the following command to flash the Node MCU chip (change COMXX to be COM3 if the COM port identified above is #3): "esptool.exe -vv -cd nodemcu -cb 115200 -cp COMXX -ca 0x00000 -cf Heatmiser_Neostat.ino.nodemcu.bin"
 4) After the NodeMCU reboots you will see a WiFi Access Point called "NeoHubRelayBridge" (it might take a minute to appear), then connect to this access point (no password needed) and navigate to 192.168.4.1 (should be automatic on most phones). Here you should select your own WiFi network (2.4GHz only) by choosing from the menus.
