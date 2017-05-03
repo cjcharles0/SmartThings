@@ -13,4 +13,4 @@ Instructions for setting up a Heatmiser Neo Thermostat
 11) Finally you can now press Create Thermostat devices and it will create the required thermostats for each Thermostat that you have following the naming information in the settings panel.
 
 
-Donations would be much appreciated at http://paypal.me/cjcharles if you have enjoyed/benefited from this Device Handler as it has taken a fair while to pull together (and expense of buying new Thermostats!! :) ).
+If you have enjoyed/benefited from this Integration, donations would be much appreciated though not required at http://paypal.me/cjcharles . It has taken a fair while to pull together (and expense of buying new Thermostats!!)! :)
