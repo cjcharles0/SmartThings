@@ -156,63 +156,63 @@ def childSetTemp(int temp, String dni) {
 	//Send Child Set Temp command
     def deviceid = dni.replaceAll("neostat-", "")
     log.debug "Requesting ${temp} degrees for child ${deviceid}"
-	getAction("/neorelay?device=${dni}&command={\"SET_TEMP\":[${temp}, ${deviceid}]}")
+	getAction("/neorelay?device=${dni}&command={\"SET_TEMP\":[\"${temp}\", \"${deviceid}\"]}")
 }
 
 def childAwayOn(String dni) {
 	//Send Child Refresh command
     def deviceid = dni.replaceAll("neostat-", "")
     log.debug "Requesting away mode on for child ${deviceid}"
-	getAction("/neorelay?device=${dni}&command={\"AWAY_ON\":${deviceid}}")
+	getAction("/neorelay?device=${dni}&command={\"AWAY_ON\":\"${deviceid}\"}")
 }
 
 def childAwayOff(String dni) {
 	//Send Child Refresh command
     def deviceid = dni.replaceAll("neostat-", "")
     log.debug "Requesting away mode off for child ${deviceid}"
-	getAction("/neorelay?device=${dni}&command={\"AWAY_OFF\":${deviceid}}")
+	getAction("/neorelay?device=${dni}&command={\"AWAY_OFF\":\"${deviceid}\"}")
 }
 
 def childHold(int temp, String id, int hours, int minutes, String dni) {
 	//Send Child Hold command
     def deviceid = dni.replaceAll("neostat-", "")
     log.debug "Requesting Hold at ${temp} degrees for ${hours}h:${mins}m for child ${deviceid}"
-	getAction("/neorelay?device=${dni}&command={\"HOLD\":[{\"temp\":${temp},\"id\":${id},\"hours\":${hours},\"minutes\":${minutes}}, ${deviceid}]}")
+	getAction("/neorelay?device=${dni}&command={\"HOLD\":[{\"temp\":\"${temp}\",\"id\":\"${id}\",\"hours\":\"${hours}\",\"minutes\":\"${minutes}\"}, \"${deviceid}\"]}")
 }
 
 def childBoostOn(int hours, int minutes, String dni) {
 	//Send Child Boost On command
     def deviceid = dni.replaceAll("neostat-", "")
     log.debug "Requesting boost on for child ${deviceid}"
-	getAction("/neorelay?device=${dni}&command={\"BOOST_ON\":[{\"hours\":${hours},\"minutes\":${minutes}}, ${deviceid}]}")
+	getAction("/neorelay?device=${dni}&command={\"BOOST_ON\":[{\"hours\":\"${hours}\",\"minutes\":\"${minutes}\"}, \"${deviceid}\"]}")
 }
 
 def childBoostOff(int hours, int minutes, String dni) {
 	//Send Child Boost On command
     def deviceid = dni.replaceAll("neostat-", "")
     log.debug "Requesting boost off for child ${deviceid}"
-	getAction("/neorelay?device=${dni}&command={\"BOOST_OFF\":[{\"hours\":${hours},\"minutes\":${minutes}}, ${deviceid}]}")
+	getAction("/neorelay?device=${dni}&command={\"BOOST_OFF\":[{\"hours\":\"${hours}\",\"minutes\":\"${minutes}\"}, \"${deviceid}\"]}")
 }
 
 def childFrostOn(String dni) {
 	//Send Child Frost On command
     def deviceid = dni.replaceAll("neostat-", "")
     log.debug "Requesting frost on for child ${deviceid}"
-	getAction("/neorelay?device=${dni}&command={\"FROST_ON\":${deviceid}}")
+	getAction("/neorelay?device=${dni}&command={\"FROST_ON\":\"${deviceid}\"}")
 }
 
 def childFrostOff(String dni) {
 	//Send Child Frost On command
     def deviceid = dni.replaceAll("neostat-", "")
     log.debug "Requesting frost off for child ${deviceid}"
-	getAction("/neorelay?device=${dni}&command={\"FROST_OFF\":${deviceid}}")
+	getAction("/neorelay?device=${dni}&command={\"FROST_OFF\":\"${deviceid}\"}")
 }
 
 def childSetFrost(int temp, String dni) {
 	//Send Child Set Frost command
     def deviceid = dni.replaceAll("neostat-", "")
     log.debug "Requesting set frost at ${temp} degrees for child ${deviceid}"
-	getAction("/neorelay?device=${dni}&command={\"SET_FROST\":[${temp}, ${deviceid}]}")
+	getAction("/neorelay?device=${dni}&command={\"SET_FROST\":[\"${temp}\", \"${deviceid}\"]}")
 }
 
 def parse(description) {
