@@ -171,7 +171,7 @@ metadata {
 			state "default", label:'${currentValue}', icon:"st.Home.home1"
 		}
         standardTile("away", "away", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
-			state "off", action:"away", label:'Away' // icon TBC
+			state "off", action:"away", label:'Set Away' // icon TBC
 			state "on", action:"awayOff", label:'Away Activated' // icon TBC
 		}
 		standardTile("off", "device.off", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
@@ -228,41 +228,38 @@ def processNeoResponse(result) {
 	def statusTextmsg = ""
 	def cmds = []
 
-	//log.debug result
-    if (result.relayresult.containsKey("devices")) {
-    	//If we have a devices key then it is an INFO command so process the events to update the DH
-        for (deviceinfo in result.relayresult.devices) {
-        	//We have to iterate down a few levels in the JSON to reach the device information
-            if (deviceinfo.containsKey("CURRENT_TEMPERATURE")) {
-                log.debug "got a temp = " + deviceinfo.CURRENT_TEMPERATURE
-                sendEvent(name: "temperature", value: deviceinfo.CURRENT_TEMPERATURE, isStateChange: true)
-            }
-            if (deviceinfo.containsKey("CURRENT_SET_TEMPERATURE")) {
-                log.debug "current set temperature is " + deviceinfo.CURRENT_SET_TEMPERATURE
-            }
-            if (deviceinfo.containsKey("CURRENT_FLOOR_TEMPERATURE")) {
-            }
-            if (deviceinfo.containsKey("AWAY")) {
-                if (deviceinfo.AWAY == false) {
-                	log.debug "Away is false"
-                    sendEvent(name: "away", value: "on")
-                }
-                else {
-                	log.debug "away is true!!"
-                    sendEvent(name: "away", value: "on")
-                }
-            }
-            if (deviceinfo.containsKey("HOLD_TEMPERATURE")) {
-            }
-            if (deviceinfo.containsKey("HOLD_TIME")) {
-            }
-		}
-	}
-    else if (result.relayresult.containsKey("success")) {
-    	//We have a success result from a command so process it here if needed
+	log.debug result
+    if (result.containsKey("relaydevice")) {
+    	//If we have a relaydevice key then we have a response to a command we sent, so process it here
+        if (result.relayresult.containsKey("success")) {
+    		//We have a success result from a command so process it here if needed
+        }
     }
-    else if (result.relayresult.containsKey("success")) {
-    	//We have a failure result from a command so process it here if needed
+    else if (result.containsKey("device")) {
+    	//If we have a device key then it is probably a refresh command
+        if (result.containsKey("CURRENT_TEMPERATURE")) {
+            log.debug "got a temp = " + result.CURRENT_TEMPERATURE
+            sendEvent(name: "temperature", value: result.CURRENT_TEMPERATURE, isStateChange: true)
+        }
+        if (result.containsKey("CURRENT_SET_TEMPERATURE")) {
+            log.debug "current set temperature is " + result.CURRENT_SET_TEMPERATURE
+        }
+        if (result.containsKey("CURRENT_FLOOR_TEMPERATURE")) {
+        }
+        if (result.containsKey("AWAY")) {
+            if (result.AWAY == false) {
+            	log.debug "Away is false"
+                sendEvent(name: "away", value: "off")
+            }
+            else {
+            	log.debug "away is true!!"
+                sendEvent(name: "away", value: "on")
+            }
+        }
+        if (result.containsKey("HOLD_TEMPERATURE")) {
+        }
+        if (result.containsKey("HOLD_TIME")) {
+        }
 	}
     //return cmds
 }
