@@ -10,7 +10,7 @@
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
  *
- *  Neo Hub Bridge (Child Device of Neo Thermostat)
+ *  Neo Hub Bridge (Parent Device of Neo Thermostat)
  *
  *  Author: Chris Charles (cjcharles0)
  *  Date: 2017-04-26
@@ -148,7 +148,7 @@ def childRequestingRefresh(String dni) {
     //def cmds = []
     def deviceid = dni.replaceAll("neostat-", "")
     log.debug "Requesting refreshed info for child ${deviceid}"
-	getAction("/neorelay?device=${dni}&command={\"INFO\":${deviceid}}")
+	getAction("/neorelay?device=hubzonerefresh&command={\"INFO\":0}")
     //return cmds
 }
 
@@ -232,7 +232,7 @@ def parse(description) {
     cmds << sendEvent(name: "lastcommand", value: "${result}", isStateChange: true)
     
     if (result.containsKey("relaydevice")) {
-        //Received a device key, hence process the command (null devices will be ignored to make it easier to manage)
+        //Received a device key, hence process the command (null devices will be ignored to make it easier to avoid bugs)
 		if (result.relaydevice == "hubzonesetup") {
         	//Device is a fake device for setting up zones, so create new devices if they dont exist
         	for (def currentthermostat in result.relayresult) {
@@ -243,9 +243,19 @@ def parse(description) {
                     thisthermostatname = thisthermostatname + item.key
                     if (poststatname != null) {thisthermostatname = thisthermostatname + " " + poststatname}
                     log.debug "Adding child Name: ${thisthermostatname}, ID: ${item.value} to ${device.hub.id}"
-                    addChildDevice("cjcharles0", "Neo Thermostat", "neostat-${item.value}", device.hub.id, [name: thisthermostatname])
+                    addChildDevice("cjcharles0", "Neo Thermostat", "neostat-${item.key}", device.hub.id, [name: thisthermostatname])
                 }
         	}
+        }
+		if (result.relaydevice == "hubzonerefresh") {
+        	//Device is a fake device for refreshing all zone info, so process responses out to each thermostat device
+            for (deviceinfo in result.relayresult.devices) {
+                //If we have a devices key then it is an INFO command so process the events to update the DH
+                def curdevicename = deviceinfo.device
+                log.debug curdevicename
+				def curdevice = getChildDevices().find { it.deviceNetworkId == "neostat-"+curdevicename}
+            	curdevice.processNeoResponse(deviceinfo)
+            }
         }
         if (result.relaydevice.contains("neostat-")) {
         	//We got a command/response for an individual thermostat so send data to thermostat
