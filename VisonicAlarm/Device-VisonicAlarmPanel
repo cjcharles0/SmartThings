@@ -25,10 +25,11 @@ metadata {
 		capability "Alarm"
         capability "Polling"
         
-        attribute "device.alarm", "string"
+        attribute "device.status", "string"
         attribute "armaway", "string"
         attribute "armhome", "string"
         attribute "disarm", "string"
+        attribute "alarm", "enum"
         attribute "lastaction", "string"
         
         command "VisonicArmAway"
@@ -36,7 +37,10 @@ metadata {
         command "VisonicDisarm"
         command "sendInactive"
         command "updateZonesNS"
-        
+        command "off"
+        command "strobe"
+        command "siren"
+        command "both"
 	}
 
 	simulator {
@@ -51,8 +55,8 @@ metadata {
 
 	tiles (scale: 2){      
 	
-		multiAttributeTile(name:"Alarm", type: "generic", width: 6, height: 3, decoration:"flat"){
-        	tileAttribute ("device.alarm", key: "PRIMARY_CONTROL") {
+		multiAttributeTile(name:"AlarmStatus", type: "generic", width: 6, height: 3, decoration:"flat"){
+        	tileAttribute ("device.status", key: "PRIMARY_CONTROL") {
             attributeState "disarmed", label:'${name}', icon: "st.security.alarm.off", backgroundColor: "#505050"
             attributeState "home", label:'${name}', icon: "st.Home.home4", backgroundColor: "#00BEAC"
             attributeState "away", label:'${name}', icon: "st.security.alarm.on", backgroundColor: "#008CC1"
@@ -104,16 +108,26 @@ metadata {
         valueTile("ip", "ip", decoration: "flat", width: 2, height: 1) {
     		state "ip", label:'ST IP Addr.\r\n${currentValue}'
 		}
+        
+        //This alarm tile is only needed so that the state of the alarm can trigger other things in CoRE (or similar)
+        //To use this, make Core trigger if Alarm state changes to Both (this will tell you the alarm is going off), or
+        //if Alarm state changes to off (this will tell you the alarm has been disarmed)
+        standardTile("alarm", "device.alarm", inactiveLabel: false, width: 1, height: 1, decoration: "flat") {
+			state "off", label:'Off= Disarmed'
+			state "strobe", label:'Strobe= Home'
+			state "siren", label:'Siren= Away'
+            state "both", label:'Both= Alarm'
+		}
     }
 
-	main(["Alarm"])
-    details(["Alarm", "VAlarmStatus", "VArmAway", "VArmHome", "VDisarm",
+	main(["AlarmStatus"])
+    details(["AlarmStatus", "VArmAway", "VArmHome", "VDisarm",
              
              // Add all your zones here (name first then the zone)- e.g. add "zonename6", "zone6"
              "zonename1", "zone1", "zonename2", "zone2", "zonename3", "zone3", "zonename4", "zone4",
              "zonename5", "zone5", 
              
-             "refresh", "configure", "ip"])
+             "refresh", "configure", "ip", "alarm"])
 				// Add "customzones" as a tile if your zones are not sequentially numbered
 }
 
@@ -198,8 +212,24 @@ def ping() {
     getAction("/ping")
 }
 
+//These functions are needed due to the alarm device capability and hence will server to arm/disarm the alarm (though unlikely to be called)
+def off() {
+	VisonicDisarm()
+}
+def strobe() {
+	VisonicArmHome()
+}
+def siren() {
+	VisonicArmAway()
+}
+def both() {
+	//Cant manually set state to alarm, hence this has no function call
+}
 
 def parse(description) {
+
+	log.debug description
+    
     def map = [:]
     def events = []
     def cmds = []
@@ -220,25 +250,29 @@ def parse(description) {
             sendEvent(name: "disarm", value: "active", displayed: false)
             sendEvent(name: "armaway", value: "inactive", displayed: false)
         	sendEvent(name: "armhome", value: "inactive", displayed: false)
-            sendEvent(name: "alarm", value: "disarmed", displayed: false)
+            sendEvent(name: "status", value: "disarmed", displayed: false)
+            sendEvent(name: "alarm", value: "off", displayed: false)
             log.debug "Disarmed Status found"}
         else if (result.stat_str=="Armed Away" || result.stat_str=="Arm Away") {
             sendEvent(name: "disarm", value: "inactive", displayed: false)
     		sendEvent(name: "armaway", value: "active", displayed: false)
         	sendEvent(name: "armhome", value: "inactive", displayed: false)
-            sendEvent(name: "alarm", value: "away", displayed: false)
+            sendEvent(name: "status", value: "away", displayed: false)
+            sendEvent(name: "alarm", value: "siren", displayed: false)
             log.debug "Armed Away Status found"}
         else if (result.stat_str=="Armed Home" || result.stat_str=="Arm Home") {
             sendEvent(name: "disarm", value: "inactive", displayed: false)
     		sendEvent(name: "armaway", value: "inactive", displayed: false)
         	sendEvent(name: "armhome", value: "active", displayed: false)
-            sendEvent(name: "alarm", value: "home", displayed: false)
+            sendEvent(name: "status", value: "home", displayed: false)
+            sendEvent(name: "alarm", value: "strobe", displayed: false)
             log.debug "Armed Home Status found"}
         else if (result.stat_str=="Delay Alarm" || result.stat_str=="Confirm Alarm") {
             sendEvent(name: "disarm", value: "inactive", displayed: false)
     		sendEvent(name: "armaway", value: "inactive", displayed: false)
         	sendEvent(name: "armhome", value: "inactive", displayed: false)
-            sendEvent(name: "alarm", value: "alarm", displayed: false)
+            sendEvent(name: "status", value: "alarm", displayed: false)
+            sendEvent(name: "alarm", value: "both", displayed: false)
             log.debug "Alarm Status found"}
     }
     
