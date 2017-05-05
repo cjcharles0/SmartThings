@@ -20,11 +20,12 @@ metadata {
 	definition (name: "Visonic Multi Zone", namespace: "cjcharles0", author: "Chris Charles") {
 		capability "Contact Sensor"
 		capability "Motion Sensor"
+        capability "Switch"
 
 		command "inactive"
 		command "active"
 		command "open"
-        	command "close"
+        command "close"
 		command "closed"
 	}
 
@@ -56,7 +57,7 @@ def closed() {
 
 def close() {
 	log.trace "close()"
-    sendEvent(name: "contact", value: "close")
+    sendEvent(name: "contact", value: "closed")
 }
 
 def inactive() {
