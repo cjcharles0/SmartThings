@@ -280,9 +280,12 @@ def parse(description) {
         	//Device is a fake device for refreshing all zone info, so process responses out to each thermostat device
             for (deviceinfo in result.relayresult.devices) {
                 //If we have a devices key then it is an INFO command so process the events to update the DH
-                def curdevicename = deviceinfo.device
-				def curdevice = getChildDevices().find { it.deviceNetworkId == "neostat-"+curdevicename}
-            	curdevice.processNeoResponse(deviceinfo)
+                if (deviceinfo.DEVICE_TYPE < 10) {
+                	//Device type < 10 should exclude repeaters
+                    def curdevicename = deviceinfo.device
+                    def curdevice = getChildDevices().find { it.deviceNetworkId == "neostat-"+curdevicename}
+                    curdevice?.processNeoResponse(deviceinfo)
+                }
             }
         }
         if (result.relaydevice.contains("neostat-")) {
