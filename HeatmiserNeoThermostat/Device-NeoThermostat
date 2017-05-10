@@ -10,507 +10,342 @@
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
  *
- *  Neo Thermostat (Child Device of Neo Hub Bridge)
+ *  Neo Hub Bridge (Parent Device of Neo Thermostat)
  *
  *  Author: Chris Charles (cjcharles0)
  *  Date: 2017-04-26
- *  
- *  Important note, since each command is requesting something from the server, they cannot be void's otherwise
- *  nothing seems to come back from ST, even though it should receive the JSON anyway
- *  
- *  Credits to: David Lomas (codersaur) for Device Handler structure
  */
 
 import groovy.json.JsonSlurper
 
 metadata {
-	definition (name: "Neo Thermostat", namespace: "cjcharles0", author: "Chris Charles")
-    { 
-    	capability "Refresh"
-		capability "Actuator"
-		capability "Temperature Measurement"
-		capability "Relative Humidity Measurement"
-		capability "Thermostat"
-		capability "Polling"
-		capability "Sensor"
-		
-		command "refresh" // Refresh
-		command "setHeatingSetpoint" // Thermostat
-		command "raiseSetpoint" // Custom
-		command "lowerSetpoint" // Custom
-		command "setThermostatMode" // Thermostat
-		command "cycleThermostatMode" // Custom
-		command "off" // Thermostat
-		command "heat" // Thermostat
-		command "auto" // Custom
-		command "away" // Custom
-		command "awayOff" // Custom
-		command "economy" // Custom
-		command "dayOff" // Custom
-		command "custom" // Custom
-		command "resume" // Custom
-		command "boost" // Custom
-		command "suppress" // Custom
-		command "generateEvent" // Custom
+	definition (name: "Neo Hub Bridge", namespace: "cjcharles0", author: "Chris Charles") {
+		capability "Refresh"
+        capability "Configuration"
+        capability "Polling"
 
-		attribute "temperature","number" // Temperature Measurement
-		attribute "heatingSetpoint","number" // Thermostat
-		attribute "thermostatSetpoint","number" // Thermostat
-		attribute "thermostatSetpointMode", "string" // Custom
-		attribute "thermostatSetpointUntil", "string" // Custom
-		attribute "thermostatSetpointStatus", "string" // Custom
-		attribute "thermostatMode", "string" // Thermostat
-		attribute "thermostatOperatingState", "string" // Thermostat
-		attribute "thermostatStatus", "string" // Custom
-		attribute "scheduledSetpoint", "number" // Custom
-		attribute "nextScheduledSetpoint", "number" // Custom
-		attribute "nextScheduledTime", "string" // Custom
-		attribute "optimisation", "string" // Custom
-		attribute "windowFunction", "string" // Custom
+        command "getthermostats"
+        command "removethermostats"
+        command "refreshthermostats"
 
-        attribute "currentState", "string"
-        attribute "currentMode", "string"
+        command "updateThermostatInfo"
+                
+        command "testcommand"
+        
+	}
+
+	simulator {
 	}
     
     preferences {
-        section {
-        	//Preferences here
-        }
+        
+        input("password", "password", title:"Password", required:false, displayDuringSetup:false)
+        input("bridgeip", "string", title:"Neo Bridge IP Address", description: "e.g. 192.168.1.10", required: true, displayDuringSetup: true)
+        input("neohubip", "string", title:"NeoHub IP Address", description: "e.g. 192.168.1.11", required: true, displayDuringSetup: true)
+        input("prestatname", "string", title:"Add before stat name", description: "e.g. 'Thermostat' would give 'Thermostat Kitchen'", required: false, displayDuringSetup: true)
+        input("poststatname", "string", title:"Add after stat name", description: "e.g. 'Thermostat' would give 'Kitchen Thermostat'", required: false, displayDuringSetup: true)
 	}
 
-//Thermostat Temp and State
-	tiles(scale: 2) {
+	tiles (scale: 2){
+	
+        valueTile("lastcommand", "lastcommand", decoration: "flat", width: 6, height: 2) {
+			state "lastcommand", label:'${currentValue}', icon: "st.Home.home2"
+		}
 
-		// Main multi information tile
-		multiAttributeTile(name:"temperature", type:"thermostat", width:6, height:4) {
-			tileAttribute("device.temperature", key: "PRIMARY_CONTROL") {
-				attributeState("default", label:'${currentValue}°', unit:"C",
-					backgroundColors:[
-							// Celsius
-							[value: 0, color: "#153591"],
-							[value: 7, color: "#1e9cbb"],
-							[value: 15, color: "#90d2a7"],
-							[value: 23, color: "#44b621"],
-							[value: 28, color: "#f1d801"],
-							[value: 35, color: "#d04e00"],
-							[value: 37, color: "#bc2323"]
-					])
-			}
-
-			// Operating State - used to get background colour when type is 'thermostat'.
-			tileAttribute("device.thermostatStatus", key: "OPERATING_STATE") {
-				attributeState("Heating", backgroundColor:"#ffa81e", defaultState: true)
-				attributeState("Idle (Auto)", backgroundColor:"#44b621")
-				attributeState("Idle (Custom)", backgroundColor:"#44b621")
-				attributeState("Idle (Day Off)", backgroundColor:"#44b621")
-				attributeState("Idle (Economy)", backgroundColor:"#44b621")
-				attributeState("Idle (Away)", backgroundColor:"#44b621")
-				attributeState("Off", backgroundColor:"#269bd2")
-			}
-			//tileAttribute("device.thermostatMode", key: "THERMOSTAT_MODE") {
-			//	attributeState("off", label:'${name}')
-			//	attributeState("away", label:'${name}')
-			//	attributeState("auto", label:'${name}')
-			//	attributeState("economy", label:'${name}')
-			//	attributeState("dayOff", label:'${name}')
-			//	attributeState("custom", label:'${name}')
-			//}
-			//tileAttribute("device.heatingSetpoint", key: "HEATING_SETPOINT") {
-			//	attributeState("default", label:'${currentValue}', unit:"C")
-			//}
-			//tileAttribute("device.coolingSetpoint", key: "COOLING_SETPOINT") {
-			//	attributeState("default", label:'${currentValue}', unit:"C")
-			//}
+        valueTile("stip", "stip", decoration: "flat", width: 2, height: 1) {
+    		state "stip", label:'ST IP Addr.\r\n${currentValue}'
 		}
-		
-		// thermostatSetpoint tiles:
-		valueTile("thermostatSetpoint", "device.thermostatSetpoint", width: 3, height: 1) {
-			state "thermostatSetpoint", label:'Setpoint: ${currentValue}°', unit:"C"
+        valueTile("neoip", "neoip", decoration: "flat", width: 2, height: 1) {
+    		state "neoip", label:'Neohub IP Addr.\r\n${currentValue}'
 		}
-		valueTile("thermostatSetpointStatus", "device.thermostatSetpointStatus", width: 3, height: 1, decoration: "flat") {
-			state "thermostatSetpointStatus", label:'${currentValue}', backgroundColor:"#ffffff"
-		}
-		standardTile("raiseSetpoint", "device.thermostatSetpoint", width: 1, height: 1, decoration: "flat") {
-			state "setpoint", action:"raiseSetpoint", icon:"st.thermostat.thermostat-up"
-		}
-		standardTile("lowerSetpoint", "device.thermostatSetpoint", width: 1, height: 1, decoration: "flat") {
-			state "setpoint", action:"lowerSetpoint", icon:"st.thermostat.thermostat-down"
-		}
-		standardTile("resume", "device.resume", width: 1, height: 1, decoration: "flat") {
-			state "default", action:"resume", label:'Resume', icon:"st.samsung.da.oven_ic_send"
-		}
-		standardTile("boost", "device.boost", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"boost", label:'Boost' // icon TBC
-		}
-		standardTile("suppress", "device.suppress", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"suppress", label:'Suppress' // icon TBC
-		}
-		
-		
-		// thermostatMode/Status Tiles:
-		// thermostatStatus (also incorporated into the multi tile).
-		valueTile("thermostatStatus", "device.thermostatStatus", height: 1, width: 6, decoration: "flat") {
-			state "thermostatStatus", label:'${currentValue}', backgroundColor:"#ffffff"
-		}
-		// Single thermostatMode tile that cycles between all modes (too slow).
-		// To Do: Update with Evohome-specific modes:
-		standardTile("thermostatMode", "device.thermostatMode", inactiveLabel: false, decoration: "flat") {
-			state "off", action:"cycleMode", nextState: "updating", icon: "st.thermostat.heating-cooling-off"
-			state "heat", action:"cycleMode",  nextState: "updating", icon: "st.thermostat.heat"
-			state "cool", action:"cycleMode",  nextState: "updating", icon: "st.thermostat.cool"
-			state "auto", action:"cycleMode",  nextState: "updating", icon: "st.thermostat.auto"
-			state "auxHeatOnly", action:"cycleMode", icon: "st.thermostat.emergency-heat"
-			state "updating", label:"Working", icon: "st.secondary.secondary"
-		}
-		// Individual Mode tiles:
-		standardTile("auto", "device.auto", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"auto", icon: "st.thermostat.auto"
-		}
-		standardTile("custom", "device.custom", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"custom", label:'Custom' // icon TBC
-		}
-		standardTile("dayOff", "device.dayOff", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"dayOff", label:'Day Off' // icon TBC
-		}
-		standardTile("economy", "device.economy", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"economy", label:'Economy' // icon TBC
+        valueTile("brip", "brip", decoration: "flat", width: 2, height: 1) {
+    		state "brip", label:'ESP Bridge IP Addr.\r\n${currentValue}'
 		}
         
-		standardTile("settingDuraction", "device.settingDuraction", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"increaseDuration", label:'0m', nextState:"05" // icon TBC
-            state "05", action:"increaseDuration", label:'30m', nextState:"10" // icon TBC
-            state "10", action:"increaseDuration", label:'1h', nextState:"15" // icon TBC
-            state "15", action:"increaseDuration", label:'1h30', nextState:"20" // icon TBC
-            state "20", action:"increaseDuration", label:'2h', nextState:"25" // icon TBC
-            state "25", action:"increaseDuration", label:'2h30', nextState:"30" // icon TBC
-            state "30", action:"increaseDuration", label:'3h', nextState:"35" // icon TBC
-            state "35", action:"increaseDuration", label:'3h30', nextState:"40" // icon TBC
-            state "40", action:"increaseDuration", label:'4h', nextState:"default" // icon TBC
+        standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
+			state "default", label:"Refresh Inf", action:"refresh", icon:"st.secondary.refresh"
 		}
-        
-        standardTile("statusText", "statusText", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
-			state "default", label:'${currentValue}', icon:"st.Home.home1"
+        standardTile("configure", "device.configure", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
+			state "configure", label:'Bridge', action:"configure", icon:"st.secondary.configure"
 		}
-        standardTile("away", "away", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "off", action:"away", label:'Set Away' // icon TBC
-			state "on", action:"awayOff", label:'Away Activated' // icon TBC
+        standardTile("getthermostats", "device.getthermostats", inactiveLabel: false, decoration: "flat", width: 2, height: 1) {
+			state "getthermostats", label:'Create Thermostat Devices', action:"getthermostats", icon: "st.unknown.zwave.remote-controller"
 		}
-		standardTile("off", "device.off", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"off", icon:"st.thermostat.heating-cooling-off"
+        standardTile("removethermostats", "device.removethermostats", inactiveLabel: false, decoration: "flat", width: 2, height: 1) {
+			state "removethermostats", label:'Remove Thermostat Devices', action:"removethermostats", icon: "st.samsung.da.washer_ic_cancel"
 		}
-		standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"refresh", label: "Refresh", icon:"st.secondary.refresh"
+        standardTile("testcommand", "device.testcommand", inactiveLabel: false, decoration: "flat", width: 2, height: 1) {
+			state "testcommand", label:'Send Test Neohub command', action:"testcommand"
 		}
-        valueTile("floortemp", "floortemp", decoration: "flat", width: 1, height: 1) {
-    		state "floortemp", label:'Floor Temp\r\n${currentValue}'
-		}
-		
-		main "temperature"
-		details(
-				[
-				"temperature",
-				"thermostatSetpoint","raiseSetpoint","boost","resume",
-				"thermostatSetpointStatus","lowerSetpoint","settingDuraction","refresh",
-				"statusText", "away", "off", "floortemp"])
-	}
-}
-
-
-def refresh() {
-	log.debug "Refreshing thermostat data from parent"
-    //Get the parent to request a refresh
-    parent.childRequestingRefresh()
-}
-def ping() {
-}
-def poll() {
-}
-def installed() {
-}
-def updated() {
-}
-
-
-def processNeoResponse(result) {
-	//Response received from Neo Hub so process it (mainly used for refresh, but could also process the success/fail messages)
-	def statusTextmsg = ""
-	def cmds = []
-
-	log.debug result
-    if (result.containsKey("relaydevice")) {
-    	//If we have a relaydevice key then we have a response to a command we sent, so process it here
-        if (result.relayresult.containsKey("success")) {
-    		//We have a success result from a command so process it here if needed
-            log.debug "success on last command " + result.relayresult.success
-        	cmd << sendEvent(name: "statusText", value: result.relayresult, isStateChange: true)
-        }
     }
-    else if (result.containsKey("device")) {
-    	//If we have a device key then it is probably a refresh command
-        if (result.containsKey("CURRENT_TEMPERATURE")) {
-            log.debug "got a temp = " + result.CURRENT_TEMPERATURE
-            cmd << sendEvent(name: "temperature", value: result.CURRENT_TEMPERATURE)
-        }
-        if (result.containsKey("CURRENT_SET_TEMPERATURE")) {
-            log.debug "current set temperature is " + result.CURRENT_SET_TEMPERATURE
-        }
-        if (result.containsKey("CURRENT_FLOOR_TEMPERATURE")) {
-        	cmd << sendEvent(name: "floortemp", value: result.CURRENT_FLOOR_TEMPERATURE)
-        }
-        if (result.containsKey("AWAY")) {
-            if (result.AWAY == false) {
-                cmd << sendEvent(name: "away", value: "off")
-            }
-            else {
-                cmd << sendEvent(name: "away", value: "on")
-            }
-        }
-        if (result.containsKey("HOLD_TEMPERATURE")) {
-        }
-        if (result.containsKey("HOLD_TIME")) {
-        }
-	}
+
+	main(["lastcommand"])
+    details(["lastcommand",
+             "stip", "neoip", "brip",
+             "refresh", "configure", "getthermostats", "removethermostats",
+             //"testcommand"
+             ])
+}
+
+def testcommand(){
+	log.debug "Getting firmware version"
+    childAwayOff("neostat-Downstairs")
+}
+
+def configure(){
+	def cmds = []
+	log.debug "Configuring NeoBridge"
+    cmds << getAction("/config?ip_for_st=${device.hub.getDataValue("localIP")}&port_for_st=${device.hub.getDataValue("localSrvPortTCP")}&ip_for_neohub=${neohubip}&port_for_neohub=4242")
     return cmds
 }
 
+def refresh() {
+	log.debug "refresh()"
+    //SendEvents should be before any getAction, otherwise getAction does nothing
+    sendEvent(name: "stip", value: device.hub.getDataValue("localIP")+"    Port:"+device.hub.getDataValue("localSrvPortTCP"), displayed: false)
+    sendEvent(name: "neoip", value: neohubip + "    Port:4242", displayed: false)
+    sendEvent(name: "brip", value: bridgeip + "    Port:80", displayed: false)
+    //Also refresh thermostats with the same command
+    childRequestingRefresh()
+}
 
-def increaseDuration() {
-	if (device.currentValue("settingDuraction") < 35) {
-    	def newDuration = device.currentValue("settingDuraction") + 5
-    	sendEvent(name: 'settingDuraction', value: '(${newDuration}', displayed: true)
+def installed() {
+	log.debug "installed()"
+	//configure()
+}
+
+def uninstalled() {
+    removethermostats()
+}
+
+def updated() {
+	log.debug "updated()"
+    configure()
+}
+
+def ping() {
+    log.debug "ping()"
+    getAction("/ping")
+}
+
+private getthermostats(){
+    //Before sending request for thermostat list we should remove current thermostats
+	def cmds = []
+	removethermostats()
+	log.debug "Requesting List of Thermostats"
+    cmds << getAction("/neorelay?device=hubzonesetup&command={\"GET_ZONES\":0}")
+    return cmds
+}
+
+private removethermostats(){
+	log.debug "Removing Child Thermostats"
+	getChildDevices()?.each {
+    	deleteChildDevice(it.deviceNetworkId)
+    }
+}
+
+def childRequestingRefresh() {
+	//Send Refresh command
+    def cmds = []
+    log.debug "Requesting refreshed info for all children"
+	cmds << getAction("/neorelay?device=hubzonerefresh&command={\"INFO\":0}")
+    return cmds
+}
+
+def childSetTemp(int temp, String dni) {
+	//Send Child Set Temp command
+    def cmds = []
+    def deviceid = dni.replaceAll("neostat-", "")
+    log.debug "Requesting ${temp} degrees for child ${deviceid}"
+	cmds << getAction("/neorelay?device=${dni}&command={\"SET_TEMP\":[\"${temp}\", \"${deviceid}\"]}")
+    return cmds
+}
+
+def childAwayOn(String dni) {
+	//Send Child Away on command
+    def cmds = []
+    def deviceid = dni.replaceAll("neostat-", "")
+    log.debug "Requesting away mode on for child ${deviceid}"
+	cmds << getAction("/neorelay?device=${dni}&command={\"AWAY_ON\":\"${deviceid}\"}")
+    return cmds
+}
+
+def childAwayOff(String dni) {
+	//Send Child Away off command
+    def cmds = []
+    def deviceid = dni.replaceAll("neostat-", "")
+    log.debug "Requesting away mode off for child ${deviceid}"
+	cmds << getAction("/neorelay?device=${dni}&command={\"AWAY_OFF\":\"${deviceid}\"}")
+    return cmds
+}
+
+def childHeat(String dni) {
+	//Send Child Heat mode
+    def cmds = []
+    def deviceid = dni.replaceAll("neostat-", "")
+    log.debug "Requesting heat mode for child ${deviceid}"
+	cmds << getAction("/neorelay?device=${dni}&command={\"HEAT\":\"${deviceid}\"}")
+    return cmds
+}
+
+def childHold(int temp, String id, int hours, int minutes, String dni) {
+	//Send Child Hold command
+    def cmds = []
+    def deviceid = dni.replaceAll("neostat-", "")
+    log.debug "Requesting Hold at ${temp} degrees for ${hours}h:${mins}m for child ${deviceid}"
+	cmds << getAction("/neorelay?device=${dni}&command={\"HOLD\":[{\"temp\":\"${temp}\",\"id\":\"${id}\",\"hours\":\"${hours}\",\"minutes\":\"${minutes}\"}, \"${deviceid}\"]}")
+    return cmds
+}
+
+def childBoostOn(int hours, int minutes, String dni) {
+	//Send Child Boost On command
+    def cmds = []
+    def deviceid = dni.replaceAll("neostat-", "")
+    log.debug "Requesting boost on for child ${deviceid}"
+	cmds << getAction("/neorelay?device=${dni}&command={\"BOOST_ON\":[{\"hours\":\"${hours}\",\"minutes\":\"${minutes}\"}, \"${deviceid}\"]}")
+    return cmds
+}
+
+def childBoostOff(int hours, int minutes, String dni) {
+	//Send Child Boost On command
+    def cmds = []
+    def deviceid = dni.replaceAll("neostat-", "")
+    log.debug "Requesting boost off for child ${deviceid}"
+	cmds << getAction("/neorelay?device=${dni}&command={\"BOOST_OFF\":[{\"hours\":\"${hours}\",\"minutes\":\"${minutes}\"}, \"${deviceid}\"]}")
+    return cmds
+}
+
+def childFrostOn(String dni) {
+	//Send Child Frost On command
+    def cmds = []
+    def deviceid = dni.replaceAll("neostat-", "")
+    log.debug "Requesting frost on for child ${deviceid}"
+	cmds << getAction("/neorelay?device=${dni}&command={\"FROST_ON\":\"${deviceid}\"}")
+    return cmds
+}
+
+def childFrostOff(String dni) {
+	//Send Child Frost On command
+    def cmds = []
+    def deviceid = dni.replaceAll("neostat-", "")
+    log.debug "Requesting frost off for child ${deviceid}"
+	cmds << getAction("/neorelay?device=${dni}&command={\"FROST_OFF\":\"${deviceid}\"}")
+    return cmds
+}
+
+def childSetFrost(int temp, String dni) {
+	//Send Child Set Frost command
+    def cmds = []
+    def deviceid = dni.replaceAll("neostat-", "")
+    log.debug "Requesting set frost at ${temp} degrees for child ${deviceid}"
+	cmds << getAction("/neorelay?device=${dni}&command={\"SET_FROST\":[\"${temp}\", \"${deviceid}\"]}")
+    return cmds
+}
+
+def parse(description) {
+    def map = [:]
+    def events = []
+    def cmds = []
+    
+    //log.debug description
+    
+    if (description == "updated") return
+    def descMap = parseDescriptionAsMap(description)
+
+    def body = new String(descMap["body"].decodeBase64())
+
+    def slurper = new JsonSlurper()
+    def result = slurper.parseText(body)
+    
+    log.debug result
+    cmds << sendEvent(name: "lastcommand", value: "${result}", isStateChange: true)
+    
+    if (result.containsKey("relaydevice")) {
+        //Received a device key, hence process the command (null devices will be ignored to make it easier to avoid bugs)
+		if (result.relaydevice == "hubzonesetup") {
+        	//Device is a fake device for setting up zones, so create new devices if they dont exist
+        	for (def currentthermostat in result.relayresult) {
+            	//Iterate through each of the items in the result to create a device
+                for ( item in currentthermostat) {
+                	def thisthermostatname = ""
+                    if (prestatname != null) {thisthermostatname = thisthermostatname + prestatname + " "}
+                    thisthermostatname = thisthermostatname + item.key
+                    if (poststatname != null) {thisthermostatname = thisthermostatname + " " + poststatname}
+                    log.debug "Adding child Name: ${thisthermostatname}, ID: ${item.value} to ${device.hub.id}"
+                    addChildDevice("cjcharles0", "Neo Thermostat", "neostat-${item.key}", device.hub.id, [name: thisthermostatname])
+                }
+        	}
+        }
+		if (result.relaydevice == "hubzonerefresh") {
+        	//Device is a fake device for refreshing all zone info, so process responses out to each thermostat device
+            for (deviceinfo in result.relayresult.devices) {
+                //If we have a devices key then it is an INFO command so process the events to update the DH
+                def curdevicename = deviceinfo.device
+				def curdevice = getChildDevices().find { it.deviceNetworkId == "neostat-"+curdevicename}
+            	curdevice.processNeoResponse(deviceinfo)
+            }
+        }
+        if (result.relaydevice.contains("neostat-")) {
+        	//We got a command/response for an individual thermostat so send data to thermostat
+            def resultdevice = getChildDevices().find { it.deviceNetworkId == result.relaydevice}
+            resultdevice.processNeoResponse(result)
+        }
+    }
+    return cmds
+}
+
+private getAction(uri){ 
+  log.debug "uri ${uri}"
+  updateDNI()
+  
+  def userpass
+  
+  if(password != null && password != "") 
+    userpass = encodeCredentials("admin", password)
+    
+  def headers = getHeader(userpass)
+  
+  def hubAction = new physicalgraph.device.HubAction(
+    method: "GET",
+    path: uri,
+    headers: headers
+  )
+  return hubAction    
+}
+
+def parseDescriptionAsMap(description) {
+	description.split(",").inject([:]) { map, param ->
+		def nameAndValue = param.split(":")
+		map += [(nameAndValue[0].trim()):nameAndValue[1].trim()]
+	}
+}
+
+private getHeader(userpass = null){
+    def headers = [:]
+    headers.put("Host", getHostAddress())
+    headers.put("Content-Type", "application/x-www-form-urlencoded")
+    if (userpass != null)
+       headers.put("Authorization", userpass)
+    return headers
+}
+
+private encodeCredentials(username, password){
+	def userpassascii = "${username}:${password}"
+    def userpass = "Basic " + userpassascii.encodeAsBase64().toString()
+    return userpass
+}
+
+private updateDNI() { 
+    if (state.dni != null && state.dni != "" && device.deviceNetworkId != state.dni) {
+       device.deviceNetworkId = state.dni
+    }
+}
+
+private getHostAddress() {
+    if(getDeviceDataByName("bridgeip") && getDeviceDataByName("port")){
+        return "${getDeviceDataByName("bridgeip")}:${getDeviceDataByName("bridgeport")}"
     }
     else {
-    	sendEvent(name: 'settingDuraction', value: 'default', displayed: true)
+	    return "${bridgeip}:80"
     }
-}
-
-/**********************************************************************
- *  Convenience Commands:
- *   These commands alias other commands with preset parameters.
- **********************************************************************/
-def awayOff() {
-	if (state.debug) log.debug "${device.label}: awayOff()"
-	parent.childAwayOff(device.deviceNetworkId)
-}
-
-def resume() {
-	if (state.debug) log.debug "${device.label}: resume()"
-	clearHeatingSetpoint()
-}
-
-def auto() {
-	if (state.debug) log.debug "${device.label}: auto()"
-	setThermostatMode('auto')
-}
-
-def heat() {
-	if (state.debug) log.debug "${device.label}: heat()"
-	setThermostatMode('auto')
-}
-
-def off() {
-	if (state.debug) log.debug "${device.label}: off()"
-	setThermostatMode('off')
-}
-
-def away() {
-	if (state.debug) log.debug "${device.label}: away()"
-	parent.childAwayOn(device.deviceNetworkId)
-}
-
-def custom(until=-1) {
-	if (state.debug) log.debug "${device.label}: custom()"
-	setThermostatMode('custom', until)
-}
-
-def dayOff(until=-1) {
-	if (state.debug) log.debug "${device.label}: dayOff()"
-	setThermostatMode('dayOff', until)
-}
-
-def economy(until=-1) {
-	if (state.debug) log.debug "${device.label}: economy()"
-	setThermostatMode('economy', until)
-}
-
-def boost() {
-	if (state.debug) log.debug "${device.label}: boost()"
-	setHeatingSetpoint(state.boostTemperature)
-}
-
-def suppress() {
-	if (state.debug) log.debug "${device.label}: suppress()"
-	setHeatingSetpoint(state.suppressTemperature)
-}
-
-
-
-/**********************************************************************
- *  Setup and Configuration Commands:
- **********************************************************************/
-
-
-def setThermostatMode(String mode, until=-1) {
-//This should set the correct mode after checking the current mode, i.e. if set to hold it should turn Away off first, I think.....
-	log.info "${device.label}: setThermostatMode(Mode: ${mode}, Until: ${until})"
-	//Can use commands like this one
-    parent.childAwayOn(device.deviceNetworkId)
-
-}
-
-
-/**
- *  setHeatingSetpoint(setpoint, until=-1)
- * 
- *  Keen to keep this sort of command working
- *
- *   setpoint:   Setpoint temperature, e.g.: "21.5". Can be a number or string.
- *               If setpoint is outside allowed range (i.e. minHeatingSetpoint to 
- *               maxHeatingSetpoint) it will be re-written to the appropriate limit.
- *
- *   until:      (Optional) Time to apply setpoint until, can be either:
- *                - Date: date object representing when override should end.
- *                - ISO-8601 date string, in format "yyyy-MM-dd'T'HH:mm:ssXX", e.g.: "2016-04-01T00:00:00Z".
- *                - String: 'nextSwitchpoint', 'midnight', 'midday', or 'permanent'.
- *                - Number: duration in minutes (from now). 0 = permanent.
- *               If not specified, setpoint duration will default to the
- *               behaviour defined in the device settings.
- *
- *  Example usage:
- *   setHeatingSetpoint(21.0)                           // Set until <device default>.
- *   setHeatingSetpoint(21.0, 'nextSwitchpoint')        // Set until next scheduled switchpoint.
- *   setHeatingSetpoint(21.0, 'midnight')               // Set until midnight.
- *   setHeatingSetpoint(21.0, 'permanent')              // Set permanently.
- *   setHeatingSetpoint(21.0, 0)                        // Set permanently.
- *   setHeatingSetpoint(21.0, 6)                        // Set for 6 hours.
- *   setHeatingSetpoint(21.0, '2016-04-01T00:00:00Z')   // Set until specific time.
- *
- **/
-def setHeatingSetpoint(setpoint, until=-1) {
-
-	if (state.debug) log.debug "${device.label}: setHeatingSetpoint(Setpoint: ${setpoint}, Until: ${until})"
-	
-	// Clean setpoint:
-	setpoint = formatTemperature(setpoint)
-	if (Float.parseFloat(setpoint) < Float.parseFloat(state.minHeatingSetpoint)) {
-		log.warn "${device.label}: setHeatingSetpoint(): Specified setpoint (${setpoint}) is less than zone's minimum setpoint (${state.minHeatingSetpoint})."
-		setpoint = state.minHeatingSetpoint
-	}
-	else if (Float.parseFloat(setpoint) > Float.parseFloat(state.maxHeatingSetpoint)) {
-		log.warn "${device.label}: setHeatingSetpoint(): Specified setpoint (${setpoint}) is greater than zone's maximum setpoint (${state.maxHeatingSetpoint})."
-		setpoint = state.maxHeatingSetpoint
-	}
-	
-	// Clean and parse until value:
-	def untilRes
-	Calendar c = new GregorianCalendar()
-	def tzOffset = location.timeZone.getOffset(new Date().getTime()) // Timezone offset to UTC in milliseconds.
-	
-	// If until has not been specified, determine behaviour from device state.setpointMode:
-	if (-1 == until) {
-		switch (state.setpointMode) {
-	    	case 'Next Switchpoint':
-	        	until = 'nextSwitchpoint'
-	            break
-	    	case 'Midday':
-	        	until = 'midday'
-	            break
-	    	case 'Midnight':
-	        	until = 'midnight'
-	            break
-	    	case 'Duration':
-	        	until = state.setpointDuration ?: 0
-	            break
-	    	case 'Time':
-				// TO DO : construct time, like we do for midnight.
-				// settings.prefSetpointTime appears to return an ISO dateformat string.
-				// However using an input of type "time" causes HTTP 500 errors in the IDE, so disabled for now.
-				// If time has passed, then need to make it the next day.
-				if (state.debug) log.debug "${device.label}: setHeatingSetpoint(): Time: ${state.SetpointTime}"
-	        	until = 'nextSwitchpoint'
-	            break
-	    	case 'Permanent':
-	        	until = 'permanent'
-	            break
-	    	default:
-	        	until = 'nextSwitchpoint'
-	            break
-		}
-	}
-	
-	if ('permanent' == until || 0 == until) {
-		untilRes = 0
-	}
-	else if (until instanceof Date) {
-		untilRes = until
-	}
-	else if ('nextSwitchpoint' == until) {
-		untilRes = new Date().parse("yyyy-MM-dd'T'HH:mm:ssXX", device.currentValue('nextScheduledTime'))
-	}
-	else if ('midday' == until) {
-		untilRes = new Date().parse("yyyy-MM-dd'T'HH:mm:ssXX", new Date().format("yyyy-MM-dd'T'12:00:00XX", location.timeZone)) 
-	}
-	else if ('midnight' == until) {
-		c.add(Calendar.DATE, 1 ) // Add one day to calendar and use to get midnight in local time:
-		untilRes =  new Date().parse("yyyy-MM-dd'T'HH:mm:ssXX", c.getTime().format("yyyy-MM-dd'T'00:00:00XX", location.timeZone))
-	}
-	else if (until ==~ /\d+.*T.*/) { // until is a ISO-8601 date string, so parse:
-		untilRes = new Date().parse("yyyy-MM-dd'T'HH:mm:ssXX", until)
-	}
-	else if (until.isNumber()) { // until is a duration in minutes, so construct date from now():
-		// Evohome supposedly only accepts setpoints for up to 24 hours, so we should limit minutes to 1440.
-		// For now, just pass any duration and see if Evohome accepts it...
-		untilRes = new Date( now() + (Math.round(until) * 60000) )
-	}
-	else {
-		log.warn "${device.label}: setHeatingSetpoint(): until value could not be parsed. Setpoint will be applied permanently."
-		untilRes = 0
-	}
-	
-	log.info "${device.label}: setHeatingSetpoint(): Setting setpoint to: ${setpoint} until: ${untilRes}"
-	
-	// Send update via parent:
-	if (!parent.setHeatingSetpoint(state.zoneId, setpoint, untilRes)) {
-		// Command was successful, but it takes a few seconds for the Evohome cloud service to update with new values.
-		// Meanwhile, we know the new setpoint and thermostatSetpointMode anyway:
-		sendEvent(name: 'heatingSetpoint', value: setpoint)
-		sendEvent(name: 'thermostatSetpoint', value: setpoint)
-		sendEvent(name: 'thermostatSetpointMode', value: (0 == untilRes) ? 'permanentOverride' : 'temporaryOverride' )
-		sendEvent(name: 'thermostatSetpointUntil', value: (0 == untilRes) ? null : untilRes.format("yyyy-MM-dd'T'HH:mm:00XX", TimeZone.getTimeZone('UTC')))
-		calculateThermostatOperatingState()
-		calculateOptimisations()
-		calculateThermostatStatus()
-		sendEvent(name: 'thermostatSetpointStatus', value: 'Updating', displayed: false)
-		pseudoSleep(state.updateRefreshTime * 1000)
-		parent.poll(state.zoneId)
-		return null
-	}
-	else {
-		log.error "${device.label}: setHeatingSetpoint(): Error: Unable to set heating setpoint."
-		return 'error'
-	}
-}
-
-
-
-def clearHeatingSetpoint() {
-//Probably just put things back to Auto here
-}
-
-
-def raiseSetpoint() {
-//Called by tile
-}
-
-def lowerSetpoint() {
-//called by tile
-}
-
-
-def alterSetpoint() {
-//Change to specific setpoint (may not be used? or could be used with boost)
-}
-
-def calculateThermostatSetpointStatus() {
-//Maybe need a command here to do something more intelligent than set the temp
 }
