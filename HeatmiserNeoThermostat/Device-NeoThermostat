@@ -242,27 +242,27 @@ def processNeoResponse(result) {
         if (result.relayresult.containsKey("success")) {
     		//We have a success result from a command so process it here if needed
             log.debug "success on last command " + result.relayresult.success
-        	cmd << sendEvent(name: "statusText", value: result.relayresult, isStateChange: true)
+        	cmds << sendEvent(name: "statusText", value: result.relayresult, isStateChange: true)
         }
     }
     else if (result.containsKey("device")) {
     	//If we have a device key then it is probably a refresh command
         if (result.containsKey("CURRENT_TEMPERATURE")) {
             log.debug "got a temp = " + result.CURRENT_TEMPERATURE
-            cmd << sendEvent(name: "temperature", value: result.CURRENT_TEMPERATURE)
+            cmds << sendEvent(name: "temperature", value: result.CURRENT_TEMPERATURE)
         }
         if (result.containsKey("CURRENT_SET_TEMPERATURE")) {
             log.debug "current set temperature is " + result.CURRENT_SET_TEMPERATURE
         }
         if (result.containsKey("CURRENT_FLOOR_TEMPERATURE")) {
-        	cmd << sendEvent(name: "floortemp", value: result.CURRENT_FLOOR_TEMPERATURE)
+        	cmds << sendEvent(name: "floortemp", value: result.CURRENT_FLOOR_TEMPERATURE)
         }
         if (result.containsKey("AWAY")) {
             if (result.AWAY == false) {
-                cmd << sendEvent(name: "away", value: "off")
+                cmds << sendEvent(name: "away", value: "off")
             }
             else {
-                cmd << sendEvent(name: "away", value: "on")
+                cmds << sendEvent(name: "away", value: "on")
             }
         }
         if (result.containsKey("HOLD_TEMPERATURE")) {
