@@ -8,6 +8,7 @@ Some important points to note:
 3) I am using Arduino Studio 1.6.9 and version 2.3.0 of the ESP8266 board library but I have also included the compiled binary so it saves you the hassle of compiling (details are at the bottom if you want to modify code and try yourself)
 4) I have created a custom inactvity motion timeout as Visonic gives no notification that motion has stopped, this will default to 10s after every reboot, but you can configure it through SmartThings.
 5) If your Visonic Powermax is complaining about 'comms fail' and 'system trouble' after replacing the Powerlink module then go into installer settings, remove the ip address to send information to (make it 0.0.0.0). Then you need to disconnect the alarm power and its battery. After waiting for 30 seconds you can connect it back up and your alarm will no longer show an error message.
+6) The tile about Off/Strobe/Siren/Both is a way of linking the alarm with other actions since using Disarm/ArhHome/Alarm... does not work. Instead you can link them in CoRE with the following lookup - Off=Disarm, Siren=ArmAway, Strobe=ArmHome, Both=Alarm
 
 The key steps to follow when setting up the integrations are as follows:
 1) Connect the Wemos to your computer and ensure that it appears in Windows Device Manager as a COM port (serial/USB bridge) - you will need a driver though hopefully it will automatically find it. Take a note of this COM port.
