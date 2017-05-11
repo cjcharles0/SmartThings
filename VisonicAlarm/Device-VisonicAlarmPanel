@@ -143,7 +143,7 @@ metadata {
              "zonename1", "zone1", "zonename2", "zone2", "zonename3", "zone3", "zonename4", "zone4",
              "zonename5", "zone5", 
              
-             "refresh", "configure", "ip", "alarm", "testtile", "createtile", "removetile"]) //"testfunction", "createzonedevices", "removezonedevices"])
+             "refresh", "configure", "ip", "alarm", "createtile", "removetile"]) //"testfunction", "createzonedevices", "removezonedevices"])
 }
 
 def VisonicArmAway() {
