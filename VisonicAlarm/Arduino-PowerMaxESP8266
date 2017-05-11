@@ -3,6 +3,8 @@
 #include <WiFiClient.h>
 #include <WiFiUdp.h>
 #include <ESP8266WebServer.h>
+#include <ESP8266HTTPUpdateServer.h>
+#include <WiFiManager.h>
 #include <ArduinoOTA.h>
 #include <EEPROM.h>
 
@@ -30,14 +32,15 @@ IPAddress PM_LAN_BROADCAST_IP(192, 168, 32, 12);
 
 //CHANGE THESE SETTINGS
 //Specify your WIFI settings:
-#define WIFI_SSID "Your_SSID_Here"
-#define WIFI_PASS "Your_Wifi_Password_Here"
+//#define WIFI_SSID "SSIDHere"
+//#define WIFI_PASS "PSKHere"
 
 
 
 //Default values for SmartThings, these are only used when first booting and stored in EEPROM from first boot onwards, no need to change
-char IP_FOR_ST[17] = "192.168.1.199";
-char PORT_FOR_ST[7] = "39500";
+char IP_FOR_ST[17];
+char PORT_FOR_ST[7];
+//Inactivity timer wil always default to this value on boot (it is not stored in EEPROM at the moment, though only resets when the Powermax power cycles (hence rarely))
 int inactivity_seconds = 10;
 
 //Global variables for managing zones
@@ -215,6 +218,7 @@ public:
 
 MyPowerMax pm;
 ESP8266WebServer server(80);
+ESP8266HTTPUpdateServer httpUpdater;
 
 int telnetDbgLevel = LOG_NO_FILTER; //by default only NO FILTER messages are logged to telnet clients 
 
@@ -259,8 +263,11 @@ void handleRoot() {
   minutes = val / 60;
   val -= minutes*60;
 
+  byte mac[6];
+  WiFi.macAddress(mac);
+
   char szTmp[PRINTF_BUF*2];
-  sprintf(szTmp, "<html>Dashboard for esp8266 controlled Visonic Powermax.<br>Uptime: %02d:%02d:%02d.%02d<br>free heap: %u<br><br>Web Commands<br><a href='/armaway' target='_blank'>Arm Away</a><br><a href='/armhome' target='_blank'>Arm Home</a><br><a href='/disarm' target='_blank'>Disarm</a><br><br>JSON Endpoints<br><a href='/status'>Alarm Status</a><br><a href='/settings'>Smart Things Details</a><br><a href='/getzonenames'>Get Zone Names</a><br><br>Configuration<br><a href='/config'>inactivity_seconds, ip_for_st, port_for_st</a></html>", (int)days, (int)hours, (int)minutes, (int)val, ESP.getFreeHeap());
+  sprintf(szTmp, "<html><b>Dashboard for esp8266 controlled Visonic Powermax.</b><br><br>MAC Address: %02X%02X%02X%02X%02X%02X<br>Uptime: %02d:%02d:%02d.%02d<br>Free heap: %u<br><br>Web Commands<br><a href='/armaway' target='_blank'>Arm Away</a><br><a href='/armhome' target='_blank'>Arm Home</a><br><a href='/disarm' target='_blank'>Disarm</a><br><br>JSON Endpoints<br><a href='/status'>Alarm Status</a><br><a href='/settings'>Smart Things Details</a><br><a href='/getzonenames'>Get Zone Names</a><br><br>Configuration<br><a href='/config'>inactivity_seconds, ip_for_st, port_for_st</a><br><a href='/update'>Update Firmware</a></html>", mac[0],mac[1],mac[2],mac[3],mac[4],mac[5], (int)days, (int)hours, (int)minutes, (int)val, ESP.getFreeHeap());
   server.send(200, "text/html", szTmp);
 }
 
@@ -372,25 +379,30 @@ void handleGetZoneNames() {
   //Now setup the webserver connection and JSON creation
   WiFiClient client = server.client();
 
-  client.print("HTTP/1.1 200 OK\r\n");
-  client.print("Content-Type: text/plain\r\n");
-  client.print("Connection: close\r\n\r\n{\"namedzonesenrolled\":");
+  client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n{\"namedzonesenrolled\":");
   client.print(zones_enrolled_count);
   client.print(",\r\n\"maxzoneid\":");
   client.print(max_zone_id_enrolled);
   client.print(",\r\n\"zones\":[");
   for(int ix=1; ix<=max_zone_id_enrolled; ix++) {
-     if (pm.getZoneName(ix) != "Unknown") {
+      char currentzonename[50]; //Max zone name of 50 bytes
+      strcpy(currentzonename, pm.getZoneName(ix));
+      currentzonename[49] = '\0';
+     if (currentzonename != "Unknown") {
+     //if (pm.getZoneName(ix) != "Unknown") {
         client.print("{\"zoneid\":");
         client.print(ix);
         client.print(",\r\n\"zonename\":\"");
-        client.print(pm.getZoneName(ix));
+        client.print(currentzonename);
+        //client.print(pm.getZoneName(ix));
         client.print("\",\r\n\"zonetype\":\"");
         client.print(pm.getZoneSensorType(ix));
         client.print("\"},\r\n");
      }
   }
   client.print("]}");
+  
+  client.stop();
 }
 
 void handleConfig() {
@@ -479,12 +491,13 @@ void handleNotFound(){
 
 void setup(void){
 
-  Serial.begin(9600); //connect to PowerMax
+  Serial.begin(9600); //connect to PowerMax interface
 
   //Add the EEPROM in order to save values for ST and immediately read IP and port for SmartThings
   EEPROM.begin(512);
   ReadEEPROMSettings();
 
+  /*
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 
@@ -492,6 +505,31 @@ void setup(void){
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
   }
+  */
+
+  
+  //WiFiManager
+  //Local intialization. Once its business is done, there is no need to keep it around
+  WiFiManager wifiManager;
+  //reset settings - for testing
+  //wifiManager.resetSettings();
+
+  //sets timeout until configuration portal gets turned off
+  //useful to make it all retry or go to sleep
+  //in seconds
+  wifiManager.setTimeout(180);
+  
+  //fetches ssid and pass and tries to connect
+  //if it does not connect it starts an access point with the specified name
+  //and goes into a blocking loop awaiting configuration
+  if(!wifiManager.autoConnect("VisonicPowermaxBridge")) {
+      Serial.println("failed to connect and hit timeout");
+      delay(3000);
+      //reset and try again, or maybe put it to deep sleep
+      ESP.reset();
+      delay(5000);
+  }
+  
 
   server.on("/", handleRoot);
   server.on("/status", handleStatus);
@@ -516,12 +554,14 @@ void setup(void){
     server.send(200, "text/plain", "{\"ping_alive\": true}");
   });
 
+#ifdef PM_ENABLE_OTA_UPDATES
+    //Link the HTTP Updater with the web sesrver
+    httpUpdater.setup(&server);
+    ArduinoOTA.begin();
+#endif
+
   server.onNotFound(handleNotFound);
   server.begin();
-
-#ifdef PM_ENABLE_OTA_UPDATES
-  ArduinoOTA.begin();
-#endif
 
 #ifdef PM_ENABLE_TELNET_ACCESS
   telnetServer.begin();
@@ -547,7 +587,7 @@ void handleNewTelnetClients()
     else
     {
       telnetClient = telnetServer.available();
-      LOG("Connected to %s, type '?' for help.\r\n", WIFI_SSID); 
+      LOG("Connected to WiFi, type '?' for help.\r\n");
     }
   }
 }
