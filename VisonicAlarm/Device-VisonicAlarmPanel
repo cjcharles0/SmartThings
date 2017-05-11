@@ -21,7 +21,7 @@ import groovy.json.JsonSlurper
 metadata {
 	definition (name: "Visonic Alarm Panel", namespace: "cjcharles0", author: "Chris Charles") {
 		capability "Refresh"
-        //capability "Configuration"
+        capability "Configuration"
 		capability "Alarm"
         capability "Polling"
         
@@ -35,7 +35,9 @@ metadata {
         command "VisonicArmAway"
         command "VisonicArmHome"
         command "VisonicDisarm"
-        command "sendInactive"
+        command "Vcreatezonedevices"
+        command "Vremovezonedevices"
+        command "Vtestfunction"
         command "updateZonesNS"
         command "off"
         command "strobe"
@@ -51,6 +53,8 @@ metadata {
         input("password", "password", title:"Password", required:false, displayDuringSetup:true)
         input("ip", "string", title:"Visonic IP Address", description: "e.g. 192.168.1.10", required: true, displayDuringSetup: true)
         input("inactivityseconds", "string", title:"Motion sensor inactivity timeout", description: "override the default of 10s (60s max)", required: false, displayDuringSetup: false)
+        input("prename", "string", title:"Add before zone name", description: "e.g. 'Visonic' would give 'Visonic Kitchen'", required: false, displayDuringSetup: true)
+        input("postname", "string", title:"Add after zone name", description: "e.g. 'Visonic' would give 'Kitchen Visonic'", required: false, displayDuringSetup: true)
 	}
 
 	tiles (scale: 2){      
@@ -109,6 +113,18 @@ metadata {
     		state "ip", label:'ST IP Addr.\r\n${currentValue}'
 		}
         
+        standardTile("createtile", "device.createzonedevices", inactiveLabel: false, decoration: "flat", width: 2, height: 1) {
+			state "cancreatezonedevices", label:'Create Zone Devices', action:"Vcreatezonedevices", icon: "st.unknown.zwave.remote-controller"
+            state "cantcreatezonedevices", label:'Remove Child Devices to Create again', action:"", icon: ""
+		}
+        standardTile("removetile", "device.removezonedevices", inactiveLabel: false, decoration: "flat", width: 2, height: 1) {
+			state "default", label:'Remove Zone Devices', action:"Vremovezonedevices", icon: "st.samsung.da.washer_ic_cancel"
+		}
+        
+        standardTile("testtile", "device.testfunction", inactiveLabel: false, decoration: "flat", width: 2, height: 1) {
+			state "default", label:'test_function', action:"Vtestfunction"
+		}
+        
         //This alarm tile is only needed so that the state of the alarm can trigger other things in CoRE (or similar)
         //To use this, make Core trigger if Alarm state changes to Both (this will tell you the alarm is going off), or
         //if Alarm state changes to off (this will tell you the alarm has been disarmed)
@@ -123,12 +139,11 @@ metadata {
 	main(["AlarmStatus"])
     details(["AlarmStatus", "VArmAway", "VArmHome", "VDisarm",
              
-             // Add all your zones here (name first then the zone)- e.g. add "zonename6", "zone6"
+             // Add all your zones here (zonenameX first then zoneX)- e.g. add "zonename6", "zone6" if you want to display zone6 in the alarm panel
              "zonename1", "zone1", "zonename2", "zone2", "zonename3", "zone3", "zonename4", "zone4",
              "zonename5", "zone5", 
              
-             "refresh", "configure", "ip", "alarm"])
-				// Add "customzones" as a tile if your zones are not sequentially numbered
+             "refresh", "configure", "ip", "alarm", "testtile", "createtile", "removetile"]) //"testfunction", "createzonedevices", "removezonedevices"])
 }
 
 def VisonicArmAway() {
@@ -158,16 +173,33 @@ def VisonicDisarm() {
     getAction("/disarm")
 }
 
-def sendInactive(zone_id){
-  log.debug "Inactive timeout for zone " + zone_id
-  sendEvent(name: zone_id, value: "inactive", displayed: true, isStateChange: true)
-}
-
-def updateZonesNS(){
-	log.debug "Running non-sequential zone name update"
+//These functions will create and remove child devices
+def Vcreatezonedevices() {
+	//Vremovezonedevices()
+    //Update the tile status so we dont do it again
+    sendEvent(name: "createzonedevices", value: "cantcreatezonedevices", displayed: false)
+	log.debug "Requesting List of Thermostats"
     getAction("/getzonenames")
 }
-    
+
+def Vremovezonedevices() {
+	log.debug "Removing Child Zone Devices"
+	getChildDevices()?.each {
+    	deleteChildDevice(it.deviceNetworkId)
+    }
+    //Update tile so that we can create devices again if desired
+    sendEvent(name: "createzonedevices", value: "cancreatezonedevices", displayed: false)
+}
+
+def Vtestfunction() {
+	//log.debug "got here"
+    log.debug prename
+    if (device.currentValue("createzonedevices") == "cancreatezonedevices") {
+    	log.debug "state correct"
+    }
+}
+
+//This will configure the WeMos D1 to talk to ST
 def configure(){
 	def cmds = []
 	log.debug "Configuring Visonic (getting zones+types, configuring IP/port/timeout)"
@@ -195,6 +227,7 @@ def refresh() {
     sendEvent(name: "ip", value: device.hub.getDataValue("localIP")+"    Port:"+device.hub.getDataValue("localSrvPortTCP"), displayed: false)
     //Now refresh Alarm status
     getAction("/refresh")
+    //getAction("/getzonenames")
 }
 
 def installed() {
@@ -223,13 +256,11 @@ def siren() {
 	VisonicArmAway()
 }
 def both() {
-	//Cant manually set state to alarm, hence this has no function call
+	//Cant manually set state to alarm, hence this has no action
 }
 
 def parse(description) {
 
-	log.debug description
-    
     def map = [:]
     def events = []
     def cmds = []
@@ -286,44 +317,73 @@ def parse(description) {
     }
     
     if (result.containsKey("zone_status")) {
+    	//Got a zone status so first try to find the correct child device
+        def curdevice = getChildDevices()?.find { it.deviceNetworkId == "visoniczone"+result.zone_id}
+        //Now switch based on what has happened
     	switch (result.zone_status) {
 			case "Violated (Motion)":
-				//log.debug "Got motion zone - " + result.zone_id
+				//log.debug "Got motion zone - " + result.zone_id + curdevice
             	sendEvent(name: "visonic"+result.zone_id, value: "active", displayed: true, isStateChange: true)
+                curdevice?.active()
             	break
             case "No Motion":
 				//log.debug "Motion stopped in zone - " + result.zone_id
             	sendEvent(name: "visonic"+result.zone_id, value: "inactive", displayed: true, isStateChange: true)
+                curdevice?.inactive()
             	break
             case "Open":
 				//log.debug "Got Open zone - " + result.zone_id
             	sendEvent(name: "visonic"+result.zone_id, value: "open", displayed: true, isStateChange: true)
+                curdevice?.open()
                 break
             case "Closed":
 				//log.debug "Got Closed zone - " + result.zone_id
             	sendEvent(name: "visonic"+result.zone_id, value: "closed", displayed: true, isStateChange: true)
+                curdevice?.closed()
                 break
 		}
     }
     
     //This code will pull zone information out of the /getzonenamespage (and allows for zones not in order)
     if (result.containsKey("maxzoneid")) {
+    	/*def prependname
+        if (getDeviceDataByName("prezonename")) { prependname = getDeviceDataByName("prezonename") } else { prependname = prezonename }
+    	def postpendname
+        if (getDeviceDataByName("postzonename")) { postpendname = getDeviceDataByName("postzonename") } else { postpendname = postzonename }*/
     	for (def curzone in result.zones) {
         	//log.debug curzone.zoneid + " - " + curzone.zonename + " - " + curzone.zonetype
+            //Here we create a child device with the right name and DNI
+
+/*            def thiszonename = ""
+            def tempzonename = getzonename()
+            log.debug tempzonename*/
+            def thiszonename = ""
+            if (prename != null) {thiszonename = thiszonename + prename + " "}
+            thiszonename = thiszonename + curzone.zonename
+            if (postname != null) {thiszonename = thiszonename + " " + postname}
+            log.debug "Adding child Name: ${thiszonename}, ID: ${curzone.zoneid} to ${device.hub.id}"
+            addChildDevice("cjcharles0", "Visonic Multi Zone", "visoniczone${curzone.zoneid}", device.hub.id, [name: thiszonename])
+            
+            //Now we find the device that was just created
+            def curdevice = getChildDevices()?.find { it.deviceNetworkId == "visoniczone"+curzone.zoneid}
+            
+            //Now update this child device and also the tile on this device
             sendEvent(name: "visonicname"+(curzone.zoneid), value: curzone.zonename)
             //If it is a magnetic sensor then set it closed to start
             if (curzone.zonetype == "Magnet") {
             	sendEvent(name: "visonic"+(curzone.zoneid), value: "closed")
+                curdevice?.closed()
             }
             //If it is a motion sensor the set it inactive first
             if (curzone.zonetype == "Motion") {
             	sendEvent(name: "visonic"+(curzone.zoneid), value: "inactive")
+                curdevice?.inactive()
             }
     	}
     }
     
     //This zone code is quicker and more efficient as /status loads quickly, but requires sequential zone IDs
-    if (result.containsKey("enroled_zones")) {
+    /*if (result.containsKey("enroled_zones")) {
     	log.debug "Configuring zone names and types"
 		//Iterate through each of the zones
         result.enroled_zones.eachWithIndex { zone, zoneIndex -> 
@@ -338,7 +398,7 @@ def parse(description) {
             	sendEvent(name: "visonic"+(zoneIndex+1), value: "inactive")
             }
 		}
-    }
+    }*/
 }
 
 private getAction(uri){ 
