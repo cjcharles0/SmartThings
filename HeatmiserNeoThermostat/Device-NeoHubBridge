@@ -27,8 +27,17 @@ metadata {
         command "getthermostats"
         command "removethermostats"
         command "childRequestingRefresh"
-
-        command "updateThermostatInfo"
+        command "childAwayOn"
+        command "childAwayOff"
+        command "childHeat"
+        command "childSetTemp"
+        command "childHold"
+        command "childCancelHold"
+        command "childBoostOn"
+        command "childBoostOff"
+        command "childFrostOn"
+        command "childFrostOff"
+        command "childSetFrost"
                 
         command "testcommand"
         
@@ -152,15 +161,6 @@ def childRequestingRefresh() {
     return cmds
 }
 
-def childSetTemp(int temp, String dni) {
-	//Send Child Set Temp command
-    def cmds = []
-    def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
-    log.debug "Requesting ${temp} degrees for child ${deviceid}"
-	cmds << getAction("/neorelay?device=${dni}&command={\"SET_TEMP\":[\"${temp}\", \"${deviceid}\"]}")
-    return cmds
-}
-
 def childAwayOn(String dni) {
 	//Send Child Away on command
     def cmds = []
@@ -188,30 +188,48 @@ def childHeat(String dni) {
     return cmds
 }
 
-def childHold(int temp, String id, int hours, int minutes, String dni) {
+def childSetTemp(int temp, String dni) {
+	//Send Child Set Temp command
+    def cmds = []
+    def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
+    log.debug "Requesting ${temp} degrees for child ${deviceid}"
+	cmds << getAction("/neorelay?device=${dni}&command={\"SET_TEMP\":[${temp},\"${deviceid}\"]}")
+    return cmds
+}
+
+def childCancelHold(String dni) {
+	//Send Child Set Temp command
+    def cmds = []
+    def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
+    log.debug "Requesting revert to schedule for child ${deviceid}"
+	cmds << getAction("/neorelay?device=${dni}&command={\"TIMER_HOLD_OFF\":[0,\"${deviceid}\"]}")
+    return cmds
+}
+
+def childHold(int temp, String hours, String minutes, String dni) {
 	//Send Child Hold command
     def cmds = []
     def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
     log.debug "Requesting Hold at ${temp} degrees for ${hours}h:${mins}m for child ${deviceid}"
-	cmds << getAction("/neorelay?device=${dni}&command={\"HOLD\":[{\"temp\":\"${temp}\",\"id\":\"${id}\",\"hours\":\"${hours}\",\"minutes\":\"${minutes}\"}, \"${deviceid}\"]}")
+	cmds << getAction("/neorelay?device=${dni}&command={\"HOLD\":[{\"temp\":${temp},\"id\":\"\",\"hours\":${hours},\"minutes\":${minutes}},\"${deviceid}\"]}")
     return cmds
 }
 
-def childBoostOn(int hours, int minutes, String dni) {
+def childBoostOn(String hours, String minutes, String dni) {
 	//Send Child Boost On command
     def cmds = []
     def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
     log.debug "Requesting boost on for child ${deviceid}"
-	cmds << getAction("/neorelay?device=${dni}&command={\"BOOST_ON\":[{\"hours\":\"${hours}\",\"minutes\":\"${minutes}\"}, \"${deviceid}\"]}")
+	cmds << getAction("/neorelay?device=${dni}&command={\"BOOST_ON\":[{\"hours\":${hours},\"minutes\":${minutes}},\"${deviceid}\"]}")
     return cmds
 }
 
-def childBoostOff(int hours, int minutes, String dni) {
+def childBoostOff(String hours, String minutes, String dni) {
 	//Send Child Boost On command
     def cmds = []
     def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
     log.debug "Requesting boost off for child ${deviceid}"
-	cmds << getAction("/neorelay?device=${dni}&command={\"BOOST_OFF\":[{\"hours\":\"${hours}\",\"minutes\":\"${minutes}\"}, \"${deviceid}\"]}")
+	cmds << getAction("/neorelay?device=${dni}&command={\"BOOST_OFF\":[{\"hours\":${hours},\"minutes\":${minutes}},\"${deviceid}\"]}")
     return cmds
 }
 
@@ -238,7 +256,7 @@ def childSetFrost(int temp, String dni) {
     def cmds = []
     def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
     log.debug "Requesting set frost at ${temp} degrees for child ${deviceid}"
-	cmds << getAction("/neorelay?device=${dni}&command={\"SET_FROST\":[\"${temp}\", \"${deviceid}\"]}")
+	cmds << getAction("/neorelay?device=${dni}&command={\"SET_FROST\":[\"${temp}\",\"${deviceid}\"]}")
     return cmds
 }
 
@@ -257,7 +275,7 @@ def parse(description) {
     def slurper = new JsonSlurper()
     def result = slurper.parseText(body)
     
-    log.debug result
+    //log.debug result
     cmds << sendEvent(name: "lastcommand", value: "${result}", isStateChange: true)
     
     if (result.containsKey("relaydevice")) {
@@ -278,6 +296,7 @@ def parse(description) {
         }
 		if (result.relaydevice == "hubzonerefresh") {
         	//Device is a fake device for refreshing all zone info, so process responses out to each thermostat device
+            log.debug "Received a refresh command from NeoHub"
             for (deviceinfo in result.relayresult.devices) {
                 //If we have a devices key then it is an INFO command so process the events to update the DH
                 if (deviceinfo.DEVICE_TYPE < 10) {
