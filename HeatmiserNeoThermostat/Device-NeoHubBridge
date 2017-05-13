@@ -159,6 +159,9 @@ def childRequestingRefresh() {
     def cmds = []
     log.debug "Requesting refreshed info for all children"
 	cmds << getAction("/neorelay?device=hubzonerefresh&command={\"INFO\":0}")
+    //Also put a timer to refresh again in 5 mins
+	runIn(5*60, childRequestingRefresh)
+    
     return cmds
 }
 
