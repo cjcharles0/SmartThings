@@ -234,28 +234,30 @@ def processNeoResponse(result) {
 
 def increaseDuration() {
 	def cmds = []
-    if (!device.currentValue("holdtime").contains(':')) {
-    	//Here we just set up the tile in case it isnt already done
+    if (device.currentValue("holdtime")?.contains(':')) {
+        def hoursandmins = device.currentValue("holdtime").split(":")
+        //Now we calculate and update hours and minutes and send it to the holdtime tile
+        if (hoursandmins[1] == "30") {
+            hoursandmins[1] = "00"
+            if (hoursandmins[0].toInteger() < 3) {
+                hoursandmins[0] = (hoursandmins[0].toInteger() + 1)
+            }
+            else {
+                hoursandmins[0] = "0"
+                cmds << sendEvent(name: "setTempHold", value: "off")
+            }
+        }
+        else {
+            hoursandmins[1] = "30"
+            cmds << sendEvent(name: "setTempHold", value: "offHold")
+        }
+        cmds << sendEvent(name: "holdtime", value: "${hoursandmins[0]}:${hoursandmins[1]}", displayed: true)
+    }
+    else {
+    	//Here we should reset as it hasnt found
 		cmds << sendEvent(name: "holdtime", value: "0:00", displayed: true)
         return cmds
     }
-    def hoursandmins = device.currentValue("holdtime").split(":")
-    //Now we calculate and update hours and minutes and send it to the holdtime tile
-	if (hoursandmins[1] == "30") {
-    	hoursandmins[1] = "00"
-        if (hoursandmins[0].toInteger() < 3) {
-            hoursandmins[0] = (hoursandmins[0].toInteger() + 1)
-        }
-        else {
-            hoursandmins[0] = "0"
-            cmds << sendEvent(name: "setTempHold", value: "off")
-        }
-    }
-    else {
-    	hoursandmins[1] = "30"
-        cmds << sendEvent(name: "setTempHold", value: "offHold")
-    }
-    cmds << sendEvent(name: "holdtime", value: "${hoursandmins[0]}:${hoursandmins[1]}", displayed: true)
     return cmds
 }
 
