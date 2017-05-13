@@ -32,8 +32,9 @@ metadata {
 		capability "Sensor"
         capability "Configuration"
 		
-		command "refresh" // Refresh
-		command "raiseSetpoint" // Custom
+		command "refresh" // Refresh - this does nothing as otherwise there will be too many refresh commands being sent
+		command "requestrefresh" // Refresh
+        command "raiseSetpoint" // Custom
 		command "lowerSetpoint" // Custom
 		command "increaseDuration" // Custom
 		command "setTempHoldOn" // Custom
