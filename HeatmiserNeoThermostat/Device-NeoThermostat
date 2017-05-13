@@ -206,9 +206,18 @@ def processNeoResponse(result) {
                 	statusTextmsg = statusTextmsg + "changed"
                 }
                 else {
+                	//Otherwise add on the time for next change
                 	statusTextmsg = statusTextmsg + result.NEXT_ON_TIME.reverse().take(5).reverse()
                 }
+                //Now send the update
             	cmds << sendEvent(name: "nextSetpointText", value: statusTextmsg)
+                //Lastly if we are here then there should be not holds in place and hence lets update the set button text
+                if (device.currentValue("holdtime") == "0:00") {
+                	cmds << sendEvent(name: "setTempHold", value: "off")
+                }
+                else {    
+                	cmds << sendEvent(name: "setTempHold", value: "offHold")
+                }
             }
             else {
             	//Here we do have a hold time so display temp and time
