@@ -17,8 +17,6 @@
  *  
  *  Important note, since each command is requesting something from the server, they cannot be void's otherwise
  *  nothing seems to come back from ST, even though it should receive the JSON anyway
- *  
- *  Credits to: David Lomas (codersaur) for Device Handler structure
  */
 
 import groovy.json.JsonSlurper
@@ -29,47 +27,27 @@ metadata {
     	capability "Refresh"
 		capability "Actuator"
 		capability "Temperature Measurement"
-		capability "Relative Humidity Measurement"
 		capability "Thermostat"
 		capability "Polling"
 		capability "Sensor"
+        capability "Configuration"
 		
 		command "refresh" // Refresh
-		command "setHeatingSetpoint" // Thermostat
 		command "raiseSetpoint" // Custom
 		command "lowerSetpoint" // Custom
-		command "setThermostatMode" // Thermostat
-		command "cycleThermostatMode" // Custom
-		command "off" // Thermostat
-		command "heat" // Thermostat
-		command "auto" // Custom
-		command "away" // Custom
+		command "increaseDuration" // Custom
+		command "setTempHoldOn" // Custom
+		command "setTempHoldOff" // Custom
+        command "away" // Custom
 		command "awayOff" // Custom
-		command "economy" // Custom
-		command "dayOff" // Custom
-		command "custom" // Custom
-		command "resume" // Custom
-		command "boost" // Custom
-		command "suppress" // Custom
-		command "generateEvent" // Custom
 
 		attribute "temperature","number" // Temperature Measurement
-		attribute "heatingSetpoint","number" // Thermostat
 		attribute "thermostatSetpoint","number" // Thermostat
-		attribute "thermostatSetpointMode", "string" // Custom
-		attribute "thermostatSetpointUntil", "string" // Custom
-		attribute "thermostatSetpointStatus", "string" // Custom
-		attribute "thermostatMode", "string" // Thermostat
-		attribute "thermostatOperatingState", "string" // Thermostat
-		attribute "thermostatStatus", "string" // Custom
-		attribute "scheduledSetpoint", "number" // Custom
-		attribute "nextScheduledSetpoint", "number" // Custom
-		attribute "nextScheduledTime", "string" // Custom
-		attribute "optimisation", "string" // Custom
-		attribute "windowFunction", "string" // Custom
-
-        attribute "currentState", "string"
-        attribute "currentMode", "string"
+		attribute "nextSetpointText", "string" // Custom
+		attribute "statusText", "string" // Custom
+		//attribute "holdtime", "string" // Custom
+        
+        
 	}
     
     preferences {
@@ -82,7 +60,7 @@ metadata {
 	tiles(scale: 2) {
 
 		// Main multi information tile
-		multiAttributeTile(name:"temperature", type:"thermostat", width:6, height:4) {
+		multiAttributeTile(name:"temperature", type:"thermostat", width:6, height:3) {
 			tileAttribute("device.temperature", key: "PRIMARY_CONTROL") {
 				attributeState("default", label:'${currentValue}°', unit:"C",
 					backgroundColors:[
@@ -107,28 +85,10 @@ metadata {
 				attributeState("Idle (Away)", backgroundColor:"#44b621")
 				attributeState("Off", backgroundColor:"#269bd2")
 			}
-			//tileAttribute("device.thermostatMode", key: "THERMOSTAT_MODE") {
-			//	attributeState("off", label:'${name}')
-			//	attributeState("away", label:'${name}')
-			//	attributeState("auto", label:'${name}')
-			//	attributeState("economy", label:'${name}')
-			//	attributeState("dayOff", label:'${name}')
-			//	attributeState("custom", label:'${name}')
-			//}
-			//tileAttribute("device.heatingSetpoint", key: "HEATING_SETPOINT") {
-			//	attributeState("default", label:'${currentValue}', unit:"C")
-			//}
-			//tileAttribute("device.coolingSetpoint", key: "COOLING_SETPOINT") {
-			//	attributeState("default", label:'${currentValue}', unit:"C")
-			//}
 		}
-		
-		// thermostatSetpoint tiles:
-		valueTile("thermostatSetpoint", "device.thermostatSetpoint", width: 3, height: 1) {
-			state "thermostatSetpoint", label:'Setpoint: ${currentValue}°', unit:"C"
-		}
-		valueTile("thermostatSetpointStatus", "device.thermostatSetpointStatus", width: 3, height: 1, decoration: "flat") {
-			state "thermostatSetpointStatus", label:'${currentValue}', backgroundColor:"#ffffff"
+       
+		valueTile("thermostatSetpoint", "device.thermostatSetpoint", width: 1, height: 1, decoration: "flat") {
+			state "thermostatSetpoint", label:'${currentValue}°C', backgroundColor:"#ffffff"
 		}
 		standardTile("raiseSetpoint", "device.thermostatSetpoint", width: 1, height: 1, decoration: "flat") {
 			state "setpoint", action:"raiseSetpoint", icon:"st.thermostat.thermostat-up"
@@ -136,90 +96,59 @@ metadata {
 		standardTile("lowerSetpoint", "device.thermostatSetpoint", width: 1, height: 1, decoration: "flat") {
 			state "setpoint", action:"lowerSetpoint", icon:"st.thermostat.thermostat-down"
 		}
-		standardTile("resume", "device.resume", width: 1, height: 1, decoration: "flat") {
-			state "default", action:"resume", label:'Resume', icon:"st.samsung.da.oven_ic_send"
+		standardTile("increaseTime", "device.increaseTime", width: 1, height: 1, decoration: "flat") {
+			state "default", action:"increaseDuration", label:'+30m'
 		}
-		standardTile("boost", "device.boost", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"boost", label:'Boost' // icon TBC
+		valueTile("holdtime", "device.holdtime", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
+			state "default", label:'${currentValue}' // icon TBC
 		}
-		standardTile("suppress", "device.suppress", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"suppress", label:'Suppress' // icon TBC
-		}
-		
-		
-		// thermostatMode/Status Tiles:
-		// thermostatStatus (also incorporated into the multi tile).
-		valueTile("thermostatStatus", "device.thermostatStatus", height: 1, width: 6, decoration: "flat") {
-			state "thermostatStatus", label:'${currentValue}', backgroundColor:"#ffffff"
-		}
-		// Single thermostatMode tile that cycles between all modes (too slow).
-		// To Do: Update with Evohome-specific modes:
-		standardTile("thermostatMode", "device.thermostatMode", inactiveLabel: false, decoration: "flat") {
-			state "off", action:"cycleMode", nextState: "updating", icon: "st.thermostat.heating-cooling-off"
-			state "heat", action:"cycleMode",  nextState: "updating", icon: "st.thermostat.heat"
-			state "cool", action:"cycleMode",  nextState: "updating", icon: "st.thermostat.cool"
-			state "auto", action:"cycleMode",  nextState: "updating", icon: "st.thermostat.auto"
-			state "auxHeatOnly", action:"cycleMode", icon: "st.thermostat.emergency-heat"
-			state "updating", label:"Working", icon: "st.secondary.secondary"
-		}
-		// Individual Mode tiles:
-		standardTile("auto", "device.auto", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"auto", icon: "st.thermostat.auto"
-		}
-		standardTile("custom", "device.custom", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"custom", label:'Custom' // icon TBC
-		}
-		standardTile("dayOff", "device.dayOff", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"dayOff", label:'Day Off' // icon TBC
-		}
-		standardTile("economy", "device.economy", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"economy", label:'Economy' // icon TBC
+        standardTile("setTempHold", "setTempHold", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
+			state "off", action:"setTempHoldOn", label:'Set Temp' // icon TBC
+			state "offhold", action:"setTempHoldOn", label:'Set Hold' // icon TBC
+            state "cancel", action:"setTempHoldOff", label:'Cancel Hold' // icon TBC
 		}
         
-		standardTile("settingDuraction", "device.settingDuraction", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"increaseDuration", label:'0m', nextState:"05" // icon TBC
-            state "05", action:"increaseDuration", label:'30m', nextState:"10" // icon TBC
-            state "10", action:"increaseDuration", label:'1h', nextState:"15" // icon TBC
-            state "15", action:"increaseDuration", label:'1h30', nextState:"20" // icon TBC
-            state "20", action:"increaseDuration", label:'2h', nextState:"25" // icon TBC
-            state "25", action:"increaseDuration", label:'2h30', nextState:"30" // icon TBC
-            state "30", action:"increaseDuration", label:'3h', nextState:"35" // icon TBC
-            state "35", action:"increaseDuration", label:'3h30', nextState:"40" // icon TBC
-            state "40", action:"increaseDuration", label:'4h', nextState:"default" // icon TBC
+        
+		valueTile("nextSetpointText", "device.nextSetpointText", width: 3, height: 1) {
+			state "default", label:'${currentValue}'
+		}
+        valueTile("statusText", "statusText", decoration: "flat", width: 3, height: 1) {     //, inactiveLabel: false
+			state "default", label:'${currentValue}'
 		}
         
-        standardTile("statusText", "statusText", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
-			state "default", label:'${currentValue}', icon:"st.Home.home1"
-		}
-        standardTile("away", "away", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "off", action:"away", label:'Set Away' // icon TBC
-			state "on", action:"awayOff", label:'Away Activated' // icon TBC
-		}
-		standardTile("off", "device.off", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"off", icon:"st.thermostat.heating-cooling-off"
-		}
-		standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"refresh", label: "Refresh", icon:"st.secondary.refresh"
-		}
+        
         valueTile("floortemp", "floortemp", decoration: "flat", width: 1, height: 1) {
     		state "floortemp", label:'Floor Temp\r\n${currentValue}'
+		}
+        standardTile("away", "away", inactiveLabel: false, decoration: "flat", width: 2, height: 1) {
+			state "off", action:"away", label:'Set Away' // icon TBC
+			state "on", action:"awayOff", label:'Away Activated\r\nPress to cancel' // icon TBC
+		}
+		standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
+			state "default", action:"requestrefresh", label: "Refresh", icon:"st.secondary.refresh"
+		}
+        
+        
+		standardTile("off", "device.off", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
+			state "on", action:"off", icon:"st.thermostat.heating-cooling-off"
+ 			state "off", action:"on", label:'Turn On', icon:"st.thermostat.heating-cooling-off"
 		}
 		
 		main "temperature"
 		details(
 				[
 				"temperature",
-				"thermostatSetpoint","raiseSetpoint","boost","resume",
-				"thermostatSetpointStatus","lowerSetpoint","settingDuraction","refresh",
-				"statusText", "away", "off", "floortemp"])
+				"nextSetpointText", "raiseSetpoint", "increaseTime", "holdtime",
+				"statusText", "lowerSetpoint", "thermostatSetpoint", "setTempHold",
+				"floortemp", "away", "refresh"])
 	}
 }
 
 
 def refresh() {
 	log.debug "Refreshing thermostat data from parent"
-    //Get the parent to request a refresh
-    parent.childRequestingRefresh()
+    //Get the parent to request a refresh but this should be the parent showing the actual refresh command
+    //parent.childRequestingRefresh()
 }
 def ping() {
 }
@@ -230,34 +159,65 @@ def installed() {
 def updated() {
 }
 
+def requestrefresh() {
+	parent.childRequestingRefresh()
+}
 
 def processNeoResponse(result) {
 	//Response received from Neo Hub so process it (mainly used for refresh, but could also process the success/fail messages)
 	def statusTextmsg = ""
 	def cmds = []
 
-	log.debug result
+	//log.debug result
     if (result.containsKey("relaydevice")) {
     	//If we have a relaydevice key then we have a response to a command we sent, so process it here
-        if (result.relayresult.containsKey("success")) {
-    		//We have a success result from a command so process it here if needed
-            log.debug "success on last command " + result.relayresult.success
-        	cmds << sendEvent(name: "statusText", value: result.relayresult, isStateChange: true)
+        if (result.relayresult.containsKey("result")) {
+    		//We have a success result from a command so process it here by pasting in the response and updating tile
+            log.debug "success on last command: " + result.relayresult.result
+            refresh()
+        	cmds << sendEvent(name: "statusText", value: result.relayresult)
         }
     }
     else if (result.containsKey("device")) {
     	//If we have a device key then it is probably a refresh command
         if (result.containsKey("CURRENT_TEMPERATURE")) {
-            log.debug "got a temp = " + result.CURRENT_TEMPERATURE
+        	//Got a temperature so update the tile
+            //log.debug "got a temp = " + result.CURRENT_TEMPERATURE
             cmds << sendEvent(name: "temperature", value: result.CURRENT_TEMPERATURE)
         }
         if (result.containsKey("CURRENT_SET_TEMPERATURE")) {
-            log.debug "current set temperature is " + result.CURRENT_SET_TEMPERATURE
+        	//Got a set temperature so update it if above 15 (otherwise Away will set this to 5° annoyingly)
+        	def settempint = result.CURRENT_SET_TEMPERATURE.toBigDecimal().toInteger()
+            if (settempint > 15) {
+            	cmds << sendEvent(name: "thermostatSetpoint", value: settempint)
+            }
         }
         if (result.containsKey("CURRENT_FLOOR_TEMPERATURE")) {
+        	//Update the floor temperature in case anybody cares!
         	cmds << sendEvent(name: "floortemp", value: result.CURRENT_FLOOR_TEMPERATURE)
         }
+        if (result.containsKey("HOLD_TIME")) {
+        	if (result.HOLD_TIME == "0:00") {
+            	//Here we have zero hold time so run until next on time
+            	statusTextmsg = "Set to " + result.CURRENT_SET_TEMPERATURE + "C until "
+                if (result.NEXT_ON_TIME.reverse().take(3).reverse() == "255") {
+                	//If we see 255:255 in hh:mm field then it is set permanently
+                	statusTextmsg = statusTextmsg + "changed"
+                }
+                else {
+                	statusTextmsg = statusTextmsg + result.NEXT_ON_TIME.reverse().take(5).reverse()
+                }
+            	cmds << sendEvent(name: "nextSetpointText", value: statusTextmsg)
+            }
+            else {
+            	//Here we do have a hold time so display temp and time
+            	statusTextmsg = "Holding " + result.HOLD_TEMPERATURE + "°C for " + result.HOLD_TIME
+            	cmds << sendEvent(name: "nextSetpointText", value: statusTextmsg)
+            }
+        }
+        
         if (result.containsKey("AWAY")) {
+        	//Update away status as this is the most important parameter for Neostats
             if (result.AWAY == false) {
                 cmds << sendEvent(name: "away", value: "off")
             }
@@ -267,250 +227,106 @@ def processNeoResponse(result) {
         }
         if (result.containsKey("HOLD_TEMPERATURE")) {
         }
-        if (result.containsKey("HOLD_TIME")) {
-        }
 	}
     return cmds
 }
 
 
 def increaseDuration() {
-	if (device.currentValue("settingDuraction") < 35) {
-    	def newDuration = device.currentValue("settingDuraction") + 5
-    	sendEvent(name: 'settingDuraction', value: '(${newDuration}', displayed: true)
+	def cmds = []
+    if (!device.currentValue("holdtime").contains(':')) {
+    	//Here we just set up the tile in case it isnt already done
+		cmds << sendEvent(name: "holdtime", value: "0:00", displayed: true)
+        return cmds
+    }
+    def hoursandmins = device.currentValue("holdtime").split(":")
+    //Now we calculate and update hours and minutes and send it to the holdtime tile
+	if (hoursandmins[1] == "30") {
+    	hoursandmins[1] = "00"
+        if (hoursandmins[0].toInteger() < 3) {
+            hoursandmins[0] = (hoursandmins[0].toInteger() + 1)
+        }
+        else {
+            hoursandmins[0] = "0"
+            cmds << sendEvent(name: "setTempHold", value: "off")
+        }
     }
     else {
-    	sendEvent(name: 'settingDuraction', value: 'default', displayed: true)
+    	hoursandmins[1] = "30"
+        cmds << sendEvent(name: "setTempHold", value: "offHold")
     }
-}
-
-/**********************************************************************
- *  Convenience Commands:
- *   These commands alias other commands with preset parameters.
- **********************************************************************/
-def awayOff() {
-	if (state.debug) log.debug "${device.label}: awayOff()"
-	parent.childAwayOff(device.deviceNetworkId)
-}
-
-def resume() {
-	if (state.debug) log.debug "${device.label}: resume()"
-	clearHeatingSetpoint()
-}
-
-def auto() {
-	if (state.debug) log.debug "${device.label}: auto()"
-	setThermostatMode('auto')
-}
-
-def heat() {
-	if (state.debug) log.debug "${device.label}: heat()"
-	setThermostatMode('auto')
-}
-
-def off() {
-	if (state.debug) log.debug "${device.label}: off()"
-	setThermostatMode('off')
+    cmds << sendEvent(name: "holdtime", value: "${hoursandmins[0]}:${hoursandmins[1]}", displayed: true)
+    return cmds
 }
 
 def away() {
+	//Set away mode on
+	def cmds = []
 	if (state.debug) log.debug "${device.label}: away()"
 	parent.childAwayOn(device.deviceNetworkId)
+    cmds << sendEvent(name: "away", value: "on", displayed: true)
+    return cmds
+}
+def awayOff() {
+	//Set away mode off
+	def cmds = []
+	if (state.debug) log.debug "${device.label}: awayOff()"
+	parent.childAwayOff(device.deviceNetworkId)
+    cmds << sendEvent(name: "away", value: "off", displayed: true)
+    return cmds
 }
 
-def custom(until=-1) {
-	if (state.debug) log.debug "${device.label}: custom()"
-	setThermostatMode('custom', until)
+def setTempHoldOn() {
+	def cmds = []
+	if (state.debug) log.debug "${device.label}: set temp hold - setTempOn()"
+    def newtemp = device.currentValue("thermostatSetpoint").toInteger()
+    log.debug device.currentValue("holdtime")
+    if (device.currentValue("holdtime") == "0:00") {
+    	parent.childSetTemp(newtemp, device.deviceNetworkId)
+    }
+    else {
+     	def hours = device.currentValue("holdtime").take(1)
+    	def minutes = device.currentValue("holdtime").reverse().take(2)
+        log.debug hours + " hours, " + minutes + "mins"
+		parent.childHold(newtemp, hours, minutes, device.deviceNetworkId)
+	}
+    cmds << sendEvent(name: "setTempHold", value: "cancel")
+    return cmds
 }
 
-def dayOff(until=-1) {
-	if (state.debug) log.debug "${device.label}: dayOff()"
-	setThermostatMode('dayOff', until)
-}
-
-def economy(until=-1) {
-	if (state.debug) log.debug "${device.label}: economy()"
-	setThermostatMode('economy', until)
-}
-
-def boost() {
-	if (state.debug) log.debug "${device.label}: boost()"
-	setHeatingSetpoint(state.boostTemperature)
-}
-
-def suppress() {
-	if (state.debug) log.debug "${device.label}: suppress()"
-	setHeatingSetpoint(state.suppressTemperature)
-}
-
-
-
-/**********************************************************************
- *  Setup and Configuration Commands:
- **********************************************************************/
-
-
-def setThermostatMode(String mode, until=-1) {
-//This should set the correct mode after checking the current mode, i.e. if set to hold it should turn Away off first, I think.....
-	log.info "${device.label}: setThermostatMode(Mode: ${mode}, Until: ${until})"
-	//Can use commands like this one
-    parent.childAwayOn(device.deviceNetworkId)
-
-}
-
-
-/**
- *  setHeatingSetpoint(setpoint, until=-1)
- * 
- *  Keen to keep this sort of command working
- *
- *   setpoint:   Setpoint temperature, e.g.: "21.5". Can be a number or string.
- *               If setpoint is outside allowed range (i.e. minHeatingSetpoint to 
- *               maxHeatingSetpoint) it will be re-written to the appropriate limit.
- *
- *   until:      (Optional) Time to apply setpoint until, can be either:
- *                - Date: date object representing when override should end.
- *                - ISO-8601 date string, in format "yyyy-MM-dd'T'HH:mm:ssXX", e.g.: "2016-04-01T00:00:00Z".
- *                - String: 'nextSwitchpoint', 'midnight', 'midday', or 'permanent'.
- *                - Number: duration in minutes (from now). 0 = permanent.
- *               If not specified, setpoint duration will default to the
- *               behaviour defined in the device settings.
- *
- *  Example usage:
- *   setHeatingSetpoint(21.0)                           // Set until <device default>.
- *   setHeatingSetpoint(21.0, 'nextSwitchpoint')        // Set until next scheduled switchpoint.
- *   setHeatingSetpoint(21.0, 'midnight')               // Set until midnight.
- *   setHeatingSetpoint(21.0, 'permanent')              // Set permanently.
- *   setHeatingSetpoint(21.0, 0)                        // Set permanently.
- *   setHeatingSetpoint(21.0, 6)                        // Set for 6 hours.
- *   setHeatingSetpoint(21.0, '2016-04-01T00:00:00Z')   // Set until specific time.
- *
- **/
-def setHeatingSetpoint(setpoint, until=-1) {
-
-	if (state.debug) log.debug "${device.label}: setHeatingSetpoint(Setpoint: ${setpoint}, Until: ${until})"
-	
-	// Clean setpoint:
-	setpoint = formatTemperature(setpoint)
-	if (Float.parseFloat(setpoint) < Float.parseFloat(state.minHeatingSetpoint)) {
-		log.warn "${device.label}: setHeatingSetpoint(): Specified setpoint (${setpoint}) is less than zone's minimum setpoint (${state.minHeatingSetpoint})."
-		setpoint = state.minHeatingSetpoint
-	}
-	else if (Float.parseFloat(setpoint) > Float.parseFloat(state.maxHeatingSetpoint)) {
-		log.warn "${device.label}: setHeatingSetpoint(): Specified setpoint (${setpoint}) is greater than zone's maximum setpoint (${state.maxHeatingSetpoint})."
-		setpoint = state.maxHeatingSetpoint
-	}
-	
-	// Clean and parse until value:
-	def untilRes
-	Calendar c = new GregorianCalendar()
-	def tzOffset = location.timeZone.getOffset(new Date().getTime()) // Timezone offset to UTC in milliseconds.
-	
-	// If until has not been specified, determine behaviour from device state.setpointMode:
-	if (-1 == until) {
-		switch (state.setpointMode) {
-	    	case 'Next Switchpoint':
-	        	until = 'nextSwitchpoint'
-	            break
-	    	case 'Midday':
-	        	until = 'midday'
-	            break
-	    	case 'Midnight':
-	        	until = 'midnight'
-	            break
-	    	case 'Duration':
-	        	until = state.setpointDuration ?: 0
-	            break
-	    	case 'Time':
-				// TO DO : construct time, like we do for midnight.
-				// settings.prefSetpointTime appears to return an ISO dateformat string.
-				// However using an input of type "time" causes HTTP 500 errors in the IDE, so disabled for now.
-				// If time has passed, then need to make it the next day.
-				if (state.debug) log.debug "${device.label}: setHeatingSetpoint(): Time: ${state.SetpointTime}"
-	        	until = 'nextSwitchpoint'
-	            break
-	    	case 'Permanent':
-	        	until = 'permanent'
-	            break
-	    	default:
-	        	until = 'nextSwitchpoint'
-	            break
-		}
-	}
-	
-	if ('permanent' == until || 0 == until) {
-		untilRes = 0
-	}
-	else if (until instanceof Date) {
-		untilRes = until
-	}
-	else if ('nextSwitchpoint' == until) {
-		untilRes = new Date().parse("yyyy-MM-dd'T'HH:mm:ssXX", device.currentValue('nextScheduledTime'))
-	}
-	else if ('midday' == until) {
-		untilRes = new Date().parse("yyyy-MM-dd'T'HH:mm:ssXX", new Date().format("yyyy-MM-dd'T'12:00:00XX", location.timeZone)) 
-	}
-	else if ('midnight' == until) {
-		c.add(Calendar.DATE, 1 ) // Add one day to calendar and use to get midnight in local time:
-		untilRes =  new Date().parse("yyyy-MM-dd'T'HH:mm:ssXX", c.getTime().format("yyyy-MM-dd'T'00:00:00XX", location.timeZone))
-	}
-	else if (until ==~ /\d+.*T.*/) { // until is a ISO-8601 date string, so parse:
-		untilRes = new Date().parse("yyyy-MM-dd'T'HH:mm:ssXX", until)
-	}
-	else if (until.isNumber()) { // until is a duration in minutes, so construct date from now():
-		// Evohome supposedly only accepts setpoints for up to 24 hours, so we should limit minutes to 1440.
-		// For now, just pass any duration and see if Evohome accepts it...
-		untilRes = new Date( now() + (Math.round(until) * 60000) )
-	}
-	else {
-		log.warn "${device.label}: setHeatingSetpoint(): until value could not be parsed. Setpoint will be applied permanently."
-		untilRes = 0
-	}
-	
-	log.info "${device.label}: setHeatingSetpoint(): Setting setpoint to: ${setpoint} until: ${untilRes}"
-	
-	// Send update via parent:
-	if (!parent.setHeatingSetpoint(state.zoneId, setpoint, untilRes)) {
-		// Command was successful, but it takes a few seconds for the Evohome cloud service to update with new values.
-		// Meanwhile, we know the new setpoint and thermostatSetpointMode anyway:
-		sendEvent(name: 'heatingSetpoint', value: setpoint)
-		sendEvent(name: 'thermostatSetpoint', value: setpoint)
-		sendEvent(name: 'thermostatSetpointMode', value: (0 == untilRes) ? 'permanentOverride' : 'temporaryOverride' )
-		sendEvent(name: 'thermostatSetpointUntil', value: (0 == untilRes) ? null : untilRes.format("yyyy-MM-dd'T'HH:mm:00XX", TimeZone.getTimeZone('UTC')))
-		calculateThermostatOperatingState()
-		calculateOptimisations()
-		calculateThermostatStatus()
-		sendEvent(name: 'thermostatSetpointStatus', value: 'Updating', displayed: false)
-		pseudoSleep(state.updateRefreshTime * 1000)
-		parent.poll(state.zoneId)
-		return null
-	}
-	else {
-		log.error "${device.label}: setHeatingSetpoint(): Error: Unable to set heating setpoint."
-		return 'error'
-	}
-}
-
-
-
-def clearHeatingSetpoint() {
-//Probably just put things back to Auto here
+def setTempHoldOff() {
+	//Cancel the temp hold
+	def cmds = []
+	if (state.debug) log.debug "${device.label}: cancel hold/temp - setTempHoldOff()"
+	parent.childCancelHold(device.deviceNetworkId)
+    if (device.currentValue("holdtime") == "0:00") {
+    	//We have 0:00 as hh:mm, so the next command will be a set_temp
+        cmds << sendEvent(name: "setTempHold", value: "off")
+    }
+    else {
+    	cmds << sendEvent(name: "setTempHold", value: "offHold")
+    }
+    return cmds
 }
 
 
 def raiseSetpoint() {
-//Called by tile
+	//Called by tile to increase set temp box
+	def cmds = []
+	def newtemp = device.currentValue("thermostatSetpoint").toInteger() + 1
+    cmds << sendEvent(name: "thermostatSetpoint", value: newtemp)
+    return cmds
 }
 
 def lowerSetpoint() {
-//called by tile
+//called by tile to decrease set temp box
+	def cmds = []
+	def newtemp = device.currentValue("thermostatSetpoint").toInteger() - 1
+    cmds << sendEvent(name: "thermostatSetpoint", value: newtemp)
+    return cmds
 }
 
 
-def alterSetpoint() {
+def changeSetpoint() {
 //Change to specific setpoint (may not be used? or could be used with boost)
-}
-
-def calculateThermostatSetpointStatus() {
-//Maybe need a command here to do something more intelligent than set the temp
 }
