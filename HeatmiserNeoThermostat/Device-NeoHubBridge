@@ -98,7 +98,8 @@ metadata {
 
 def testcommand(){
 	log.debug "Getting firmware version"
-    childAwayOff("neostatDownstairs")
+    //childRequestingRefresh()
+    //addChildDevice("cjcharles0", "Neo Thermostat", "neostat", device.hub.id, [name: "neo111"])
 }
 
 def configure(){
@@ -290,6 +291,7 @@ def parse(description) {
                     thisthermostatname = thisthermostatname + item.key
                     if (poststatname != null) {thisthermostatname = thisthermostatname + " " + poststatname}
                     log.debug "Adding child Name: ${thisthermostatname}, ID: ${item.value} to ${device.hub.id}"
+                    //log.debug item.key.replaceAll(" ", "-") + device.hub.id + thisthermostatname
                     addChildDevice("cjcharles0", "Neo Thermostat", "neostat${item.key.replaceAll(" ", "-")}", device.hub.id, [name: thisthermostatname])
                 }
         	}
