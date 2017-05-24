@@ -23,9 +23,14 @@ metadata {
 		capability "Refresh"
         capability "Configuration"
         capability "Polling"
+        capability "Thermostat"
 
+		command "refreshipaddresses"
         command "getthermostats"
         command "removethermostats"
+        command "setAllAwayOn"
+        command "setAllAwayOff"
+        
         command "childRequestingRefresh"
         command "childAwayOn"
         command "childAwayOff"
@@ -47,7 +52,6 @@ metadata {
 	}
     
     preferences {
-        
         input("password", "password", title:"Password", required:false, displayDuringSetup:false)
         input("bridgeip", "string", title:"Neo Bridge IP Address", description: "e.g. 192.168.1.10", required: true, displayDuringSetup: true)
         input("neohubip", "string", title:"NeoHub IP Address", description: "e.g. 192.168.1.11", required: true, displayDuringSetup: true)
@@ -60,7 +64,7 @@ metadata {
         valueTile("lastcommand", "lastcommand", decoration: "flat", width: 6, height: 2) {
 			state "lastcommand", label:'${currentValue}', icon: "st.Home.home2"
 		}
-
+        
         valueTile("stip", "stip", decoration: "flat", width: 2, height: 1) {
     		state "stip", label:'ST IP Addr.\r\n${currentValue}'
 		}
@@ -71,8 +75,8 @@ metadata {
     		state "brip", label:'ESP Bridge IP Addr.\r\n${currentValue}'
 		}
         
-        standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", label:"Refresh Inf", action:"refresh", icon:"st.secondary.refresh"
+        standardTile("refreships", "device.refreships", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
+			state "default", label:"Refresh IPs", action:"refreshipaddresses", icon:"st.secondary.refresh"
 		}
         standardTile("configure", "device.configure", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
 			state "configure", label:'Bridge', action:"configure", icon:"st.secondary.configure"
@@ -83,61 +87,76 @@ metadata {
         standardTile("removethermostats", "device.removethermostats", inactiveLabel: false, decoration: "flat", width: 2, height: 1) {
 			state "removethermostats", label:'Remove Thermostat Devices', action:"removethermostats", icon: "st.samsung.da.washer_ic_cancel"
 		}
-        standardTile("testcommand", "device.testcommand", inactiveLabel: false, decoration: "flat", width: 2, height: 1) {
-			state "testcommand", label:'Send Test Neohub command', action:"testcommand"
+        standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 2, height: 1) {
+			state "default", label:"Refresh Thermostat Info", action:"refresh", icon:"st.secondary.refresh"
+		}
+        standardTile("allaway", "device.allaway", inactiveLabel: false, decoration: "flat", width: 2, height: 1) {
+        	state "off", label:'Set all Thermostats to Away', action:"setAllAwayOn"
+			state "on", label:'Thermostats Away, Press to cancel', action:"setAllAwayOff"
+		}
+        standardTile("testcommand", "device.testcommand", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
+			state "testcommand", label:'Create Test Device', action:"testcommand"
 		}
     }
 
 	main(["lastcommand"])
     details(["lastcommand",
              "stip", "neoip", "brip",
-             "refresh", "configure", "getthermostats", "removethermostats",
-             //"testcommand"
+             "refreships", "configure", "getthermostats", "removethermostats",
+             "refresh", "allaway",
+             "testcommand"
              ])
 }
 
+
+//This is a test command that can be used for whatever reason
 def testcommand(){
-	log.debug "Getting firmware version"
+	log.debug "Sometimes it refuses to create a device, forcefully adding one now to fix things"
     //childRequestingRefresh()
-    //addChildDevice("cjcharles0", "Neo Thermostat", "neostat", device.hub.id, [name: "neo111"])
+    //addChildDevice("cjcharles0", "Neo Thermostat", "neostatTemp", device.hub.id, [name: "neo111"])
+    addChildDevice("cjcharles0", "Neo Thermostat", "neostatTemp", device.hub.id, [name: "neo tempt", label: name, completedSetup: true]) //"cjcharles0", //device.hub.id
 }
 
+
+//These are the built in commands that ST requires for basic operations
 def configure(){
 	def cmds = []
 	log.debug "Configuring NeoBridge"
     cmds << getAction("/config?ip_for_st=${device.hub.getDataValue("localIP")}&port_for_st=${device.hub.getDataValue("localSrvPortTCP")}&ip_for_neohub=${neohubip}&port_for_neohub=4242")
     return cmds
 }
-
-def refresh() {
-	log.debug "refresh()"
+def refreshipaddresses() {
+	def cmds = []
+    log.debug "refreships()"
     //SendEvents should be before any getAction, otherwise getAction does nothing
-    sendEvent(name: "stip", value: device.hub.getDataValue("localIP")+"    Port:"+device.hub.getDataValue("localSrvPortTCP"), displayed: false)
-    sendEvent(name: "neoip", value: neohubip + "    Port:4242", displayed: false)
-    sendEvent(name: "brip", value: bridgeip + "    Port:80", displayed: false)
-    //Also refresh thermostats with the same command
+    cmds << sendEvent(name: "stip", value: device.hub.getDataValue("localIP")+"    Port:"+device.hub.getDataValue("localSrvPortTCP"), displayed: false)
+    cmds << sendEvent(name: "neoip", value: neohubip + "    Port:4242", displayed: false)
+    cmds << sendEvent(name: "brip", value: bridgeip + "    Port:80", displayed: false)
+    return cmds
+}
+def refresh() {
     childRequestingRefresh()
 }
-
 def installed() {
 	log.debug "installed()"
-	//configure()
+    refreshipaddresses()
 }
-
 def uninstalled() {
     removethermostats()
 }
-
 def updated() {
 	log.debug "updated()"
-    configure()
+    refreshipaddresses()
 }
-
 def ping() {
     log.debug "ping()"
-    getAction("/ping")
+    refresh()
+}
+def poll() {
+	refresh()
 }
 
+//These commands will either add or remove the child thermostats, surprisingly....
 private getthermostats(){
     //Before sending request for thermostat list we should remove current thermostats
 	def cmds = []
@@ -146,7 +165,6 @@ private getthermostats(){
     cmds << getAction("/neorelay?device=hubzonesetup&command={\"GET_ZONES\":0}")
     return cmds
 }
-
 private removethermostats(){
 	log.debug "Removing Child Thermostats"
 	getChildDevices()?.each {
@@ -154,17 +172,38 @@ private removethermostats(){
     }
 }
 
-def childRequestingRefresh() {
-	//Send Refresh command
-    def cmds = []
-    log.debug "Requesting refreshed info for all children"
-	cmds << getAction("/neorelay?device=hubzonerefresh&command={\"INFO\":0}")
-    //Also put a timer to refresh again in 5 mins
-	runIn(5*60, childRequestingRefresh)
-    
+
+//These commands might be useful for doing bulk changes on all thermostats
+def setAllAwayOn(){
+	def cmds = []
+    log.debug "Setting all Thermostats to Away"
+	getChildDevices()?.each {
+    	it.away()
+    }
+    cmds << sendEvent(name: "allaway", value: "on", isStateChange: true)
+    return cmds
+}
+def setAllAwayOff(){
+	def cmds = []
+	log.debug "Setting all Thermostats to Home"
+	getChildDevices()?.each {
+    	it.awayOff()
+    }
+    cmds << sendEvent(name: "allaway", value: "off", isStateChange: true)
     return cmds
 }
 
+
+//These functions can be called by the children in order to request something from the bridge
+def childRequestingRefresh() {
+	//Send Refresh command - this will occur for all thermostats, not just the one which requested it
+    def cmds = []
+    log.debug "Requesting refreshed info for all children"
+	cmds << getAction("/neorelay?device=hubzonerefresh&command={\"INFO\":0}")
+    //Add it here to try and do it automatically in 5mins
+    //runEvery5Minutes(childRequestingRefresh)
+    return cmds
+}
 def childAwayOn(String dni) {
 	//Send Child Away on command
     def cmds = []
@@ -173,7 +212,6 @@ def childAwayOn(String dni) {
 	cmds << getAction("/neorelay?device=${dni}&command={\"AWAY_ON\":\"${deviceid}\"}")
     return cmds
 }
-
 def childAwayOff(String dni) {
 	//Send Child Away off command
     def cmds = []
@@ -182,7 +220,6 @@ def childAwayOff(String dni) {
 	cmds << getAction("/neorelay?device=${dni}&command={\"AWAY_OFF\":\"${deviceid}\"}")
     return cmds
 }
-
 def childHeat(String dni) {
 	//Send Child Heat mode
     def cmds = []
@@ -191,8 +228,7 @@ def childHeat(String dni) {
 	cmds << getAction("/neorelay?device=${dni}&command={\"HEAT\":\"${deviceid}\"}")
     return cmds
 }
-
-def childSetTemp(int temp, String dni) {
+def childSetTemp(String temp, String dni) {
 	//Send Child Set Temp command
     def cmds = []
     def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
@@ -200,7 +236,6 @@ def childSetTemp(int temp, String dni) {
 	cmds << getAction("/neorelay?device=${dni}&command={\"SET_TEMP\":[${temp},\"${deviceid}\"]}")
     return cmds
 }
-
 def childCancelHold(String dni) {
 	//Send Child Set Temp command
     def cmds = []
@@ -209,8 +244,7 @@ def childCancelHold(String dni) {
 	cmds << getAction("/neorelay?device=${dni}&command={\"TIMER_HOLD_OFF\":[0,\"${deviceid}\"]}")
     return cmds
 }
-
-def childHold(int temp, String hours, String minutes, String dni) {
+def childHold(String temp, String hours, String minutes, String dni) {
 	//Send Child Hold command
     def cmds = []
     def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
@@ -218,7 +252,6 @@ def childHold(int temp, String hours, String minutes, String dni) {
 	cmds << getAction("/neorelay?device=${dni}&command={\"HOLD\":[{\"temp\":${temp},\"id\":\"\",\"hours\":${hours},\"minutes\":${minutes}},\"${deviceid}\"]}")
     return cmds
 }
-
 def childBoostOn(String hours, String minutes, String dni) {
 	//Send Child Boost On command
     def cmds = []
@@ -227,7 +260,6 @@ def childBoostOn(String hours, String minutes, String dni) {
 	cmds << getAction("/neorelay?device=${dni}&command={\"BOOST_ON\":[{\"hours\":${hours},\"minutes\":${minutes}},\"${deviceid}\"]}")
     return cmds
 }
-
 def childBoostOff(String hours, String minutes, String dni) {
 	//Send Child Boost On command
     def cmds = []
@@ -236,7 +268,6 @@ def childBoostOff(String hours, String minutes, String dni) {
 	cmds << getAction("/neorelay?device=${dni}&command={\"BOOST_OFF\":[{\"hours\":${hours},\"minutes\":${minutes}},\"${deviceid}\"]}")
     return cmds
 }
-
 def childFrostOn(String dni) {
 	//Send Child Frost On command
     def cmds = []
@@ -245,7 +276,6 @@ def childFrostOn(String dni) {
 	cmds << getAction("/neorelay?device=${dni}&command={\"FROST_ON\":\"${deviceid}\"}")
     return cmds
 }
-
 def childFrostOff(String dni) {
 	//Send Child Frost On command
     def cmds = []
@@ -254,8 +284,7 @@ def childFrostOff(String dni) {
 	cmds << getAction("/neorelay?device=${dni}&command={\"FROST_OFF\":\"${deviceid}\"}")
     return cmds
 }
-
-def childSetFrost(int temp, String dni) {
+def childSetFrost(String temp, String dni) {
 	//Send Child Set Frost command
     def cmds = []
     def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
@@ -264,12 +293,11 @@ def childSetFrost(int temp, String dni) {
     return cmds
 }
 
+// This function receives the response from the NeoHub bridge and updates things, or passes the response to an individual thermostat
 def parse(description) {
     def map = [:]
     def events = []
     def cmds = []
-    
-    //log.debug description
     
     if (description == "updated") return
     def descMap = parseDescriptionAsMap(description)
@@ -279,7 +307,7 @@ def parse(description) {
     def slurper = new JsonSlurper()
     def result = slurper.parseText(body)
     
-    //log.debug result
+    log.debug result
     cmds << sendEvent(name: "lastcommand", value: "${result}", isStateChange: true)
     
     if (result.containsKey("relaydevice")) {
@@ -290,14 +318,19 @@ def parse(description) {
             	//Iterate through each of the items in the result to create a device
                 for ( item in currentthermostat) {
                 	def thisthermostatname = ""
+                    def thisthermostatdni = ""
+                    //Prepare Thermostat name - prepend and postpend of settings if they exist
                     if (prestatname != null) {thisthermostatname = thisthermostatname + prestatname + " "}
                     thisthermostatname = thisthermostatname + item.key
                     if (poststatname != null) {thisthermostatname = thisthermostatname + " " + poststatname}
-                    log.debug "Adding child Name: ${thisthermostatname}, ID: ${item.value} to ${device.hub.id}"
-                    //log.debug item.key.replaceAll(" ", "-") + device.hub.id + thisthermostatname
-                    addChildDevice("cjcharles0", "Neo Thermostat", "neostat${item.key.replaceAll(" ", "-")}", device.hub.id, [name: thisthermostatname])
+                    //Prepare DNI - Remove spaces and replace with a hyphen to prevent problems with HTML requests
+                    thisthermostatdni = "neostat${item.key.replaceAll(" ", "-")}"
+                    log.debug "Adding child Name: ${thisthermostatname}, DNI: ${thisthermostatdni}, ID: ${item.value} to ${device.hub.id}"
+                    addChildDevice( "Neo Thermostat", thisthermostatdni, null, [name: thisthermostatname, label: thisthermostatname, completedSetup: true]) //"cjcharles0", //device.hub.id
                 }
         	}
+        //Finally send a refresh command to get the latest info for each thermostat
+        //cmds << refresh()
         }
 		if (result.relaydevice == "hubzonerefresh") {
         	//Device is a fake device for refreshing all zone info, so process responses out to each thermostat device
@@ -321,7 +354,8 @@ def parse(description) {
     return cmds
 }
 
-private getAction(uri){ 
+//These functions are helper functions to talk to the NeoHub Bridge
+def getAction(uri){ 
   log.debug "uri ${uri}"
   updateDNI()
   
