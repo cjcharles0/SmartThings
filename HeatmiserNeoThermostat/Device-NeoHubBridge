@@ -299,7 +299,7 @@ def parse(description) {
                 }
         	}
         //Finally send a refresh command to get the latest info for each thermostat
-        //cmds << refresh()
+        cmds << refresh()
         }
 		if (result.relaydevice == "hubzonerefresh") {
         	//Device is a fake device for refreshing all zone info, so process responses out to each thermostat device
