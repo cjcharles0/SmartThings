@@ -33,6 +33,7 @@ metadata {
         capability "Configuration"
 		
 		command "refresh" // Refresh - this does nothing as otherwise there will be too many refresh commands being sent
+        command "refreshinfo" //This is the actual refresh command if requested by the child
 		command "requestrefresh" // Refresh
         command "raiseSetpoint" // Custom
 		command "lowerSetpoint" // Custom
@@ -126,7 +127,7 @@ metadata {
 			state "on", action:"awayOff", label:'Away Activated\r\nPress to cancel' // icon TBC
 		}
 		standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"refresh", label: "Refresh", icon:"st.secondary.refresh"
+			state "default", action:"refreshinfo", label: "Refresh", icon:"st.secondary.refresh"
 		}
         
         
@@ -147,6 +148,8 @@ metadata {
 
 
 def refresh() {
+}
+def refreshinfo() {
 	log.debug "Refreshing thermostat data from parent"
     //Get the parent to request a refresh but this should be the parent showing the actual refresh command
     parent.childRequestingRefresh()
