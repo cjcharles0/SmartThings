@@ -304,7 +304,7 @@ def setTempHoldOn() {
     }
     else {
      	def hours = device.currentValue("holdtime").take(1)
-    	def minutes = device.currentValue("holdtime").reverse().take(2).reverse
+    	def minutes = device.currentValue("holdtime").reverse().take(2).reverse()
         log.debug hours + " hours, " + minutes + "mins"
 		parent.childHold(newtemp, hours, minutes, device.deviceNetworkId)
 	}
