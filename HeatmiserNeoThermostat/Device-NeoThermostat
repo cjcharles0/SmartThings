@@ -43,10 +43,10 @@ metadata {
 		command "awayOff" // Custom
 
 		attribute "temperature","number" // Temperature Measurement
-		attribute "thermostatSetpoint","number" // Thermostat
-		attribute "nextSetpointText", "string" // Custom
-		attribute "statusText", "string" // Custom
-		//attribute "holdtime", "string" // Custom
+		attribute "thermostatSetpoint","number" // Thermostat setpoint
+        attribute "holdtime","string" // Custom for how long to hold for
+		attribute "nextSetpointText", "string" // Custom for text display
+		attribute "statusText", "string" // Custom for neohub response
         
         
 	}
@@ -92,10 +92,10 @@ metadata {
 			state "thermostatSetpoint", label:'${currentValue}°C', backgroundColor:"#ffffff"
 		}
 		standardTile("raiseSetpoint", "device.thermostatSetpoint", width: 1, height: 1, decoration: "flat") {
-			state "setpoint", action:"raiseSetpoint", icon:"st.thermostat.thermostat-up"
+			state "setpoint", action:"raiseSetpoint", label:'+1°C'//, icon:"st.thermostat.thermostat-up"
 		}
 		standardTile("lowerSetpoint", "device.thermostatSetpoint", width: 1, height: 1, decoration: "flat") {
-			state "setpoint", action:"lowerSetpoint", icon:"st.thermostat.thermostat-down"
+			state "setpoint", action:"lowerSetpoint", label:'-1°C'//, icon:"st.thermostat.thermostat-down"
 		}
 		standardTile("increaseTime", "device.increaseTime", width: 1, height: 1, decoration: "flat") {
 			state "default", action:"increaseDuration", label:'+30m'
@@ -126,7 +126,7 @@ metadata {
 			state "on", action:"awayOff", label:'Away Activated\r\nPress to cancel' // icon TBC
 		}
 		standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"requestrefresh", label: "Refresh", icon:"st.secondary.refresh"
+			state "default", action:"refresh", label: "Refresh", icon:"st.secondary.refresh"
 		}
         
         
@@ -149,20 +149,23 @@ metadata {
 def refresh() {
 	log.debug "Refreshing thermostat data from parent"
     //Get the parent to request a refresh but this should be the parent showing the actual refresh command
-    //parent.childRequestingRefresh()
+    parent.childRequestingRefresh()
 }
 def ping() {
 }
 def poll() {
 }
 def installed() {
+	updated()
 }
 def updated() {
+	//Here we have a new device so lets ensure that all the tiles are correctly filled with something
+    def cmds = []
+    cmds << sendEvent(name: "thermostatSetpoint", value: 15)
+    cmds << sendEvent(name: "holdtime", value: "0:00")
+    return cmds
 }
 
-def requestrefresh() {
-	parent.childRequestingRefresh()
-}
 
 def processNeoResponse(result) {
 	//Response received from Neo Hub so process it (mainly used for refresh, but could also process the success/fail messages)
@@ -298,7 +301,7 @@ def setTempHoldOn() {
     }
     else {
      	def hours = device.currentValue("holdtime").take(1)
-    	def minutes = device.currentValue("holdtime").reverse().take(2)
+    	def minutes = device.currentValue("holdtime").reverse().take(2).reverse
         log.debug hours + " hours, " + minutes + "mins"
 		parent.childHold(newtemp, hours, minutes, device.deviceNetworkId)
 	}
