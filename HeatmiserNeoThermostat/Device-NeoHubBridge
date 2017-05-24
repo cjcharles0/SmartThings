@@ -201,7 +201,7 @@ def childRequestingRefresh() {
     log.debug "Requesting refreshed info for all children"
 	cmds << getAction("/neorelay?device=hubzonerefresh&command={\"INFO\":0}")
     //Add it here to try and do it automatically in 5mins
-    runEvery15Minutes(childRequestingRefresh)
+    runEvery10Minutes(childRequestingRefresh())
     return cmds
 }
 def childAwayOn(String dni) {
