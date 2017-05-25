@@ -34,7 +34,6 @@ metadata {
 		
 		command "refresh" // Refresh - this does nothing as otherwise there will be too many refresh commands being sent
         command "refreshinfo" //This is the actual refresh command if requested by the child
-		command "requestrefresh" // Refresh
         command "raiseSetpoint" // Custom
 		command "lowerSetpoint" // Custom
 		command "increaseDuration" // Custom
@@ -181,12 +180,18 @@ def processNeoResponse(result) {
         if (result.relayresult.containsKey("result")) {
     		//We have a success result from a command so process it here by pasting in the response and updating tile
             log.debug "success on last command: " + result.relayresult.result
-            refresh()
+            refreshinfo()
         	cmds << sendEvent(name: "statusText", value: result.relayresult)
         }
     }
     else if (result.containsKey("device")) {
     	//If we have a device key then it is probably a refresh command
+        //First store the update date/time
+        def dateTime = new Date()
+        def updateddatetime = dateTime.format("yyyy-MM-dd HH:mm", location.timeZone)
+        cmds << sendEvent(name: "statusText", value: "Last refreshed info at ${updateddatetime}")
+        
+        //Now update the various fields on the thermostat
         if (result.containsKey("CURRENT_TEMPERATURE")) {
         	//Got a temperature so update the tile
             //log.debug "got a temp = " + result.CURRENT_TEMPERATURE
@@ -297,16 +302,16 @@ def awayOff() {
 def setTempHoldOn() {
 	def cmds = []
 	if (state.debug) log.debug "${device.label}: set temp hold - setTempOn()"
-    def newtemp = device.currentValue("thermostatSetpoint").toInteger()
+    def newtemp = device.currentValue("thermostatSetpoint")
     log.debug device.currentValue("holdtime")
     if (device.currentValue("holdtime") == "0:00") {
-    	parent.childSetTemp(newtemp, device.deviceNetworkId)
+    	parent.childSetTemp(newtemp.toString(), device.deviceNetworkId)
     }
     else {
      	def hours = device.currentValue("holdtime").take(1)
     	def minutes = device.currentValue("holdtime").reverse().take(2).reverse()
         log.debug hours + " hours, " + minutes + "mins"
-		parent.childHold(newtemp, hours, minutes, device.deviceNetworkId)
+		parent.childHold(newtemp.toString(), hours, minutes, device.deviceNetworkId)
 	}
     cmds << sendEvent(name: "setTempHold", value: "cancel")
     return cmds
