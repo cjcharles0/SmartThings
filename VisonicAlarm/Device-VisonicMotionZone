@@ -17,57 +17,34 @@
  */
  
 metadata {
-	definition (name: "Visonic Multi Zone", namespace: "cjcharles0", author: "Chris Charles") {
-		capability "Contact Sensor"
+	definition (name: "Visonic Motion Zone", namespace: "cjcharles0", author: "Chris Charles") {
 		capability "Motion Sensor"
-        capability "Switch"
 
 		command "inactive"
 		command "active"
-		command "open"
-        command "close"
-		command "closed"
 	}
 
 	simulator {
 	}
 
 	tiles {
-		standardTile("contact", "device.contact", width: 2, height: 2) {
+		standardTile("motion", "device.motion", width: 2, height: 2) {
 			state "inactive", label:'${name}', icon:"st.motion.motion.inactive", backgroundColor:"#CCCCCC" //, action: "active"
 			state "active", label:'${name}', icon:"st.motion.motion.active", backgroundColor:"#e86d13" //, action: "inactive"
-            state "closed", label:'${name}', icon:"st.contact.contact.closed", backgroundColor:"#00A0DC" //, action: "open"
-			state "open", label:'${name}', icon:"st.contact.contact.open", backgroundColor:"#e86d13" //, action: "closed"
-
 		}
-		main "contact"
-		details "contact"
+		main "motion"
+		details "motion"
 	}
-}
-
-def open() {
-	log.trace "open()"
-	sendEvent(name: "contact", value: "open")
-}
-
-def closed() {
-	log.trace "closed()"
-    sendEvent(name: "contact", value: "closed")
-}
-
-def close() {
-	log.trace "close()"
-    sendEvent(name: "contact", value: "closed")
 }
 
 def inactive() {
 	log.trace "inactive()"
-	sendEvent(name: "contact", value: "inactive")
+	sendEvent(name: "motion", value: "inactive")
 }
 
 def active() {
 	log.trace "active()"
-    sendEvent(name: "contact", value: "active")
+    sendEvent(name: "motion", value: "active")
 }
 
 //This parse code is not needed, but included so it can be used instead of other simulated contact sensors
