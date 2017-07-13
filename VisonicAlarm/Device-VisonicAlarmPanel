@@ -143,7 +143,11 @@ metadata {
              "zonename1", "zone1", "zonename2", "zone2", "zonename3", "zone3", "zonename4", "zone4",
              "zonename5", "zone5", 
              
-             "refresh", "configure", "ip", "alarm", "createtile", "removetile", "testtile"]) //"testtile", "createzonedevices", "removezonedevices"])
+             "refresh", "configure", "ip", "alarm", "createtile", "removetile"
+             //, "testtile" //If you have trouble creating your child zones you can uncomment the start of this line (remove // before the comma)
+             				//After pressing the "test_function" button on your phone you can re-comment it, to tidy up your alarm panel device.
+                            //This is only needed if you have trouble creating your zones.
+             ])
 }
 
 def VisonicArmAway() {
@@ -197,7 +201,13 @@ def Vtestfunction() {
     if (device.currentValue("createzonedevices") == "cancreatezonedevices") {
     	log.debug "state correct"
     }
-    addChildDevice("cjcharles0", "Neo Thermostat", "neostatTemp", device.hub.id, [name: "neo tempt", label: name, completedSetup: true]) //"cjcharles0", //device.hub.id
+    def curdevice = getChildDevices()?.find { it.deviceNetworkId == "visonictestdevice"}
+    if (curdevice) {
+    	//Do nothing as we already have a test device
+    }
+    else {
+    	addChildDevice("cjcharles0", "Visonic Contact Zone", "visonictestdevice", device.hub.id, [name: "visonic test device", label: name, completedSetup: true])
+	}
 }
 
 //This will configure the WeMos D1 to talk to ST
