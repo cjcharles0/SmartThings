@@ -143,7 +143,7 @@ metadata {
              "zonename1", "zone1", "zonename2", "zone2", "zonename3", "zone3", "zonename4", "zone4",
              "zonename5", "zone5", 
              
-             "refresh", "configure", "ip", "alarm", "createtile", "removetile"]) //"testfunction", "createzonedevices", "removezonedevices"])
+             "refresh", "configure", "ip", "alarm", "createtile", "removetile", "testtile"]) //"testtile", "createzonedevices", "removezonedevices"])
 }
 
 def VisonicArmAway() {
@@ -178,7 +178,7 @@ def Vcreatezonedevices() {
 	//Vremovezonedevices()
     //Update the tile status so we dont do it again
     sendEvent(name: "createzonedevices", value: "cantcreatezonedevices", displayed: false)
-	log.debug "Requesting List of Thermostats"
+	log.debug "Requesting List of Visonic Zones"
     getAction("/getzonenames")
 }
 
@@ -197,6 +197,7 @@ def Vtestfunction() {
     if (device.currentValue("createzonedevices") == "cancreatezonedevices") {
     	log.debug "state correct"
     }
+    addChildDevice("cjcharles0", "Neo Thermostat", "neostatTemp", device.hub.id, [name: "neo tempt", label: name, completedSetup: true]) //"cjcharles0", //device.hub.id
 }
 
 //This will configure the WeMos D1 to talk to ST
@@ -313,7 +314,7 @@ def parse(description) {
         def sensorStateChangedDate = dateTime.format("yyyy-MM-dd HH:mm", location.timeZone)
         def status_string = result.stat_str + " by " + result.stat_update_from + " at " + sensorStateChangedDate
         //Send the status string that we have built
-        sendEvent(name: "events", value: "${status_string}", isStateChange: true)
+        sendEvent(name: "events", value: "${status_string}", displayed: true, isStateChange: true)
     }
     
     if (result.containsKey("zone_status")) {
@@ -323,12 +324,12 @@ def parse(description) {
     	switch (result.zone_status) {
 			case "Violated (Motion)":
 				//log.debug "Got motion zone - " + result.zone_id + curdevice
-            	sendEvent(name: "visonic"+result.zone_id, value: "active", displayed: true, isStateChange: true)
+            	sendEvent(name: "visonic"+result.zone_id, value: "active", displayed: false, isStateChange: true)
                 curdevice?.active()
             	break
             case "No Motion":
 				//log.debug "Motion stopped in zone - " + result.zone_id
-            	sendEvent(name: "visonic"+result.zone_id, value: "inactive", displayed: true, isStateChange: true)
+            	sendEvent(name: "visonic"+result.zone_id, value: "inactive", displayed: false, isStateChange: true)
                 curdevice?.inactive()
             	break
             case "Open":
@@ -339,7 +340,7 @@ def parse(description) {
             case "Closed":
 				//log.debug "Got Closed zone - " + result.zone_id
             	sendEvent(name: "visonic"+result.zone_id, value: "closed", displayed: true, isStateChange: true)
-                curdevice?.closed()
+                curdevice?.close()
                 break
 		}
     }
@@ -362,23 +363,27 @@ def parse(description) {
             thiszonename = thiszonename + curzone.zonename
             if (postname != null) {thiszonename = thiszonename + " " + postname}
             log.debug "Adding child Name: ${thiszonename}, ID: ${curzone.zoneid} to ${device.hub.id}"
-            addChildDevice("cjcharles0", "Visonic Multi Zone", "visoniczone${curzone.zoneid}", device.hub.id, [name: thiszonename])
             
+            //No longer add the child device here since we cannot use the multi zone to work with CoRE (simulated sensors need a different tile name)
+            //addChildDevice("cjcharles0", "Visonic Multi Zone", "visoniczone${curzone.zoneid}", device.hub.id, [name: thiszonename])
             //Now we find the device that was just created
-            def curdevice = getChildDevices()?.find { it.deviceNetworkId == "visoniczone"+curzone.zoneid}
+            //def curdevice = getChildDevices()?.find { it.deviceNetworkId == "visoniczone"+curzone.zoneid}
+            //Could now do something like this
+            //curdevice?.inactive()
             
-            //Now update this child device and also the tile on this device
-            sendEvent(name: "visonicname"+(curzone.zoneid), value: curzone.zonename)
-            //If it is a magnetic sensor then set it closed to start
+
+            //If it is a magnetic sensor then add it as a contact sensor and update the tile on this device
             if (curzone.zonetype == "Magnet") {
+            	addChildDevice("cjcharles0", "Visonic Contact Zone", "visoniczone${curzone.zoneid}", device.hub.id, [name: thiszonename])
             	sendEvent(name: "visonic"+(curzone.zoneid), value: "closed")
-                curdevice?.closed()
             }
-            //If it is a motion sensor the set it inactive first
+            //If it is a motion sensor then add it as a motion sensor and update the tile on this device
             if (curzone.zonetype == "Motion") {
+            	addChildDevice("cjcharles0", "Visonic Motion Zone", "visoniczone${curzone.zoneid}", device.hub.id, [name: thiszonename])
             	sendEvent(name: "visonic"+(curzone.zoneid), value: "inactive")
-                curdevice?.inactive()
             }
+            //Finally update the name of the tile on this device
+            sendEvent(name: "visonicname"+(curzone.zoneid), value: curzone.zonename)
     	}
     }
     
