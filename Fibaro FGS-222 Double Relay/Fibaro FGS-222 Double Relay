@@ -69,7 +69,7 @@ tiles(scale: 2){
    
    preferences {
         def paragraph = "Device Handler by @RobinWinbourne"
-        input name: "param1", type: "number", range: "0..255", defaultValue: "255", required: true,
+        input name: "param1", type: "number", range: "0..255", defaultValue: "255", required: false,
             title: paragraph + "\n\n" +
                    "Parameter Settings: \n\n" +
                    "Parameter No. 1 - Activate / deactivate functions ALL ON / ALL OFF. \n" +
@@ -79,28 +79,28 @@ tiles(scale: 2){
                    "2 - ALL ON active ALL OFF is not active.\n" +
                    "Default value: 255."
        
-        input name: "param3", type: "number", range: "0..1", defaultValue: "0", required: true,
+        input name: "param3", type: "number", range: "0..1", defaultValue: "0", required: false,
             title: "Parameter No. 3 - Auto off relay after specified time, with the possibility of manual override - immediate Off after button push.  " +
                    "Available settings:\n" +
                    "0 - manual override disabled. After single button push the relay turns on and automatically turns off after specified time.,\n" +
                    "1 - manual override enabled. After single button push the relay turns on and automatically turns off after specified time. Another button push turns the relay off immediately..\n" +
                    "Default value: 0."
 
-		input name: "param4", type: "number", range: "0..65535", defaultValue: "0", required: true,
+		input name: "param4", type: "number", range: "0..65535", defaultValue: "0", required: false,
             title: "Parameter No. 4 - Auto off for relay 1.  " +
                    "Available settings:\n" +
                    "[1 - 65535] (0,1 s – 6553,5 s) Time period for auto off, in miliseconds,\n" +
                    "0 - Auto off disabled.\n" +
                    "Default value: 0."
 
-		input name: "param5", type: "number", range: "0..65535", defaultValue: "0", required: true,
+		input name: "param5", type: "number", range: "0..65535", defaultValue: "0", required: false,
             title: "Parameter No. 5 - Auto off for relay 2.  " +
                    "Available settings:\n" +
                    "[1 - 65535] (0,1 s – 6553,5 s) Time period for auto off, in miliseconds,\n" +
                    "0 - Auto off disabled.\n" +
                    "Default value: 0."
 
-		input name: "param6", type: "number", range: "0..2", defaultValue: "0", required: true,
+		input name: "param6", type: "number", range: "0..2", defaultValue: "0", required: false,
             title: "Parameter No. 6 - Sending commands to control devices assigned to 1-st association group (key no. 1).  " +
                    "NOTE: Parameter 15 value must be set to 1 to work properly. This activates the double-click functionality - dimmer/roller shutter control.\n" +
                    "Available settings:\n" +
@@ -109,7 +109,7 @@ tiles(scale: 2){
                    "2 - commands are sent when device is turned off. Enabling device does not send control commands. Double-clicking key sends 'turn on' command and dimmers are set to 100% brightness.\n" +
                    "Default value: 0."
 
-		input name: "param7", type: "number", range: "0..2", defaultValue: "0", required: true,
+		input name: "param7", type: "number", range: "0..2", defaultValue: "0", required: false,
             title: "Parameter No. 7 - Sending commands to control devices assigned to 2-st association group (key no. 2).  " +
                    "NOTE: Parameter 15 value must be set to 1 to work properly. This activates the double-click functionality - dimmer/roller shutter control.\n" +
                    "Available settings:\n" +
@@ -118,35 +118,35 @@ tiles(scale: 2){
                    "2 - commands are sent when device is turned off. Enabling device does not send control commands. Double-clicking key sends 'turn on' command and dimmers are set to 100% brightness.\n" +
                    "Default value: 0."
 
-		input name: "param13", type: "number", range: "0..1", defaultValue: "0", required: true,
+		input name: "param13", type: "number", range: "0..1", defaultValue: "0", required: false,
             title: "Parameter No. 13 - Assigns bistable key status to the device.  " +
                    "Available settings:\n" +
                    "0 - [On / Off] device changes status on key status change,\n" +
                    "1 - Device status depends on key status: ON when the key is ON.\n" +
                    "Default value: 0."
 
-		input name: "param14", type: "number", range: "0..1", defaultValue: "1", required: true,
+		input name: "param14", type: "number", range: "0..1", defaultValue: "1", required: false,
             title: "Parameter No. 14 - Switch type connector, you may choose between momentary and toggle switches.  " +
                    "Available settings:\n" +
                    "0 - momentary switch,\n" +
                    "1 - toggle switch.\n" +
                    "Default value: 1."
 
-		input name: "param15", type: "number", range: "0..1", defaultValue: "0", required: true,
+		input name: "param15", type: "number", range: "0..1", defaultValue: "0", required: false,
             title: "Parameter No. 15 - Operation of the Dimmer and Roller Shutter Controller - enabling this option allows the user to dim lighting/shut roller by associating Dimmer/Roller Shutter Controller and holding or double press of double switch (only mono-stable switch).  " +
                    "Available settings:\n" +
                    "0 - Dimmer/Roller Shutter Controller control is not active,\n" +
                    "1 - Dimmer/Roller Shutter Controller control is active.\n" +
                    "Default value: 0."
 
-		input name: "param16", type: "number", range: "0..1", defaultValue: "1", required: true,
+		input name: "param16", type: "number", range: "0..1", defaultValue: "1", required: false,
             title: "Parameter No. 16 - Saving the state of the device after a power failure. Fibaro Switch returns to the last position saved before a power failure.  " +
                    "Available settings:\n" +
                    "0 - Fibaro Switch does not save the state after a power failure, it returns to 'off' position,\n" +
                    "1 - Fibaro Switch saves its state before power failure.\n" +
                    "Default value: 1."
 
-        input name: "param30", type: "number", range: "0..3", defaultValue: "3", required: true,
+        input name: "param30", type: "number", range: "0..3", defaultValue: "3", required: false,
             title: "Parameter No. 30 - General Alarm, set for relay no. 1.  " +
                   "Available settings:\n" +
                    "0 - DEACTIVATION - the device does not respond to alarm data frames\n" +
@@ -155,7 +155,7 @@ tiles(scale: 2){
                    "3 - ALARM FLASHING - the device periodically changes its status to the opposite, when it detects an alarm within 10 min.\n" +
                    "Default value: 3."
 
-        input name: "param31", type: "number", range: "0..3", defaultValue: "2", required: true,
+        input name: "param31", type: "number", range: "0..3", defaultValue: "2", required: false,
             title: "Parameter No. 31 - Alarm of flooding with water, set for relay no. 1.  " +
                   "Available settings:\n" +
                    "0 - DEACTIVATION - the device does not respond to alarm data frames\n" +
@@ -164,7 +164,7 @@ tiles(scale: 2){
                    "3 - ALARM FLASHING - the device periodically changes its status to the opposite, when it detects an alarm within 10 min.\n" +
                    "Default value: 2."
 
-        input name: "param32", type: "number", range: "0..3", defaultValue: "3", required: true,
+        input name: "param32", type: "number", range: "0..3", defaultValue: "3", required: false,
             title: "Parameter No. 32 - Smoke, CO, CO2 Alarm. Set for relay no. 1.  " +
                   "Available settings:\n" +
                    "0 - DEACTIVATION - the device does not respond to alarm data frames\n" +
@@ -173,7 +173,7 @@ tiles(scale: 2){
                    "3 - ALARM FLASHING - the device periodically changes its status to the opposite, when it detects an alarm within 10 min.\n" +
                    "Default value: 3."
 
-        input name: "param33", type: "number", range: "0..3", defaultValue: "1", required: true,
+        input name: "param33", type: "number", range: "0..3", defaultValue: "1", required: false,
             title: "Parameter No. 33 - Temperature Alarm, set for relay no. 1.  " +
                   "Available settings:\n" +
                    "0 - DEACTIVATION - the device does not respond to alarm data frames\n" +
@@ -182,7 +182,7 @@ tiles(scale: 2){
                    "3 - ALARM FLASHING - the device periodically changes its status to the opposite, when it detects an alarm within 10 min.\n" +
                    "Default value: 1."
 
-        input name: "param40", type: "number", range: "0..3", defaultValue: "3", required: true,
+        input name: "param40", type: "number", range: "0..3", defaultValue: "3", required: false,
             title: "Parameter No. 40 - General Alarm, set for relay no. 2.  " +
                   "Available settings:\n" +
                    "0 - DEACTIVATION - the device does not respond to alarm data frames\n" +
@@ -191,7 +191,7 @@ tiles(scale: 2){
                    "3 - ALARM FLASHING - the device periodically changes its status to the opposite, when it detects an alarm within 10 min.\n" +
                    "Default value: 3."
 
-        input name: "param41", type: "number", range: "0..3", defaultValue: "2", required: true,
+        input name: "param41", type: "number", range: "0..3", defaultValue: "2", required: false,
             title: "Parameter No. 41 - Alarm of flooding with water, set for relay no. 2.  " +
                   "Available settings:\n" +
                    "0 - DEACTIVATION - the device does not respond to alarm data frames\n" +
@@ -200,7 +200,7 @@ tiles(scale: 2){
                    "3 - ALARM FLASHING - the device periodically changes its status to the opposite, when it detects an alarm within 10 min.\n" +
                    "Default value: 2."
 
-        input name: "param42", type: "number", range: "0..3", defaultValue: "3", required: true,
+        input name: "param42", type: "number", range: "0..3", defaultValue: "3", required: false,
             title: "Parameter No. 42 - Smoke, CO, CO2 Alarm. Set for relay no. 2.  " +
                   "Available settings:\n" +
                    "0 - DEACTIVATION - the device does not respond to alarm data frames\n" +
@@ -209,7 +209,7 @@ tiles(scale: 2){
                    "3 - ALARM FLASHING - the device periodically changes its status to the opposite, when it detects an alarm within 10 min.\n" +
                    "Default value: 3."
 
-        input name: "param43", type: "number", range: "0..3", defaultValue: "1", required: true,
+        input name: "param43", type: "number", range: "0..3", defaultValue: "1", required: false,
             title: "Parameter No. 43 - Temperature Alarm, set for relay no. 2.  " +
                   "Available settings:\n" +
                    "0 - DEACTIVATION - the device does not respond to alarm data frames\n" +
@@ -218,7 +218,7 @@ tiles(scale: 2){
                    "3 - ALARM FLASHING - the device periodically changes its status to the opposite, when it detects an alarm within 10 min.\n" +
                    "Default value: 1."
 
-		input name: "param39", type: "number", range: "0..65535", defaultValue: "600", required: true,
+		input name: "param39", type: "number", range: "0..65535", defaultValue: "600", required: false,
             title: "Parameter No. 39 - Active flashing alarm time. " +
             	   "This parameter allows to set time parameter used in timed modes.\n" +
                    "Available settings:\n" +
