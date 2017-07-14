@@ -426,6 +426,10 @@ def updated()
     response(cmds)
 }
 
+def childRefresh(String dni) {
+    log.debug "childRefresh($dni)"
+    refresh()
+}
 def childOn(String dni) {
     log.debug "childOn($dni)"
     def switchnum = "on${channelNumber(dni)}"
