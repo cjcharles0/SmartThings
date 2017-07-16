@@ -493,10 +493,9 @@ private void createChildDevices() {
      try {
         for (i in 1..2) {
         
-           addChildDevice("cjcharles0", "Child Simulated Switch", "${device.deviceNetworkId}-sw${i}", device.hub.id, [name: "${device.displayName} (S${i})"]) //, , label: thisthermostatname, completedSetup: true //device.hub.id
-//	       addChildDevice("Child Simulated Switch", "${device.deviceNetworkId}-sw${i}", null,
-//		      [completedSetup: true, label: "${device.displayName} (S${i})",
-//		      isComponent: false, componentName: "sw$i", componentLabel: "Switch $i"])
+//           addChildDevice("cjcharles0", "Child Simulated Switch", "${device.deviceNetworkId}-sw${i}", device.hub.id, [name: "${device.displayName} (S${i})"]) // completedSetup: true //device.hub.id
+	       addChildDevice("erocm123", "Switch Child Device", "${device.deviceNetworkId}-sw${i}", device.hub.id,
+		      [completedSetup: true, name: "${device.displayName} (S${i})", isComponent: false])
         }
     } catch (e) {
 	    runIn(2, "sendAlert")
