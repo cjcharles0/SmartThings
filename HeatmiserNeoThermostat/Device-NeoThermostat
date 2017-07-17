@@ -24,7 +24,7 @@ import groovy.json.JsonSlurper
 metadata {
 	definition (name: "Neo Thermostat", namespace: "cjcharles0", author: "Chris Charles")
     { 
-    	capability "Refresh"
+    	capability "Refresh" //This is kept here so we could drive refreshes by the individual thermostats
 		capability "Actuator"
 		capability "Temperature Measurement"
 		capability "Thermostat"
@@ -33,7 +33,21 @@ metadata {
         capability "Configuration"
 		
 		command "refresh" // Refresh - this does nothing as otherwise there will be too many refresh commands being sent
-        command "refreshinfo" //This is the actual refresh command if requested by the child
+        command "refreshinfo" //This is the actual refresh details command to update all thermostats
+        
+        command "setHeatingSetpoint" //Required by ST for thermostat type
+        command "setCoolingSetpoint" //Required by ST for thermostat type
+        command "off" //Required by ST for thermostat type
+        command "heat" //Required by ST for thermostat type
+        command "emergencyHeat" //Required by ST for thermostat type
+        command "cool" //Required by ST for thermostat type
+        command "setThermostatMode" //Required by ST for thermostat type
+        command "fanOn" //Required by ST for thermostat type
+        command "anAuto" //Required by ST for thermostat type
+        command "fanCirculate" //Required by ST for thermostat type
+        command "setThermostatFanMode" //Required by ST for thermostat type
+        command "auto" //Required by ST for thermostat type
+        
         command "raiseSetpoint" // Custom
 		command "lowerSetpoint" // Custom
 		command "increaseDuration" // Custom
@@ -43,6 +57,7 @@ metadata {
 		command "awayOff" // Custom
 
 		attribute "temperature","number" // Temperature Measurement
+		attribute "heatingSetpoint","number" // Thermostat setpoint
 		attribute "thermostatSetpoint","number" // Thermostat setpoint
         attribute "holdtime","string" // Custom for how long to hold for
 		attribute "nextSetpointText", "string" // Custom for text display
@@ -88,22 +103,27 @@ metadata {
 			}
 		}
        
-		valueTile("thermostatSetpoint", "device.thermostatSetpoint", width: 1, height: 1, decoration: "flat") {
-			state "thermostatSetpoint", label:'${currentValue}°C', backgroundColor:"#ffffff"
+		valueTile("heatingSetpoint", "device.heatingSetpoint", width: 1, height: 1, decoration: "flat") {
+			state "heatingSetpoint", label:'${currentValue}°C', backgroundColor:"#ffffff"
 		}
-		standardTile("raiseSetpoint", "device.thermostatSetpoint", width: 1, height: 1, decoration: "flat") {
+		standardTile("raiseSetpoint", "device.raisethermostatSetpoint", width: 1, height: 1, decoration: "flat") {
 			state "setpoint", action:"raiseSetpoint", label:'+1°C'//, icon:"st.thermostat.thermostat-up"
 		}
-		standardTile("lowerSetpoint", "device.thermostatSetpoint", width: 1, height: 1, decoration: "flat") {
+		standardTile("lowerSetpoint", "device.lowerthermostatSetpoint", width: 1, height: 1, decoration: "flat") {
 			state "setpoint", action:"lowerSetpoint", label:'-1°C'//, icon:"st.thermostat.thermostat-down"
 		}
+        
 		standardTile("increaseTime", "device.increaseTime", width: 1, height: 1, decoration: "flat") {
 			state "default", action:"increaseDuration", label:'+30m'
+		}
+        standardTile("decreaseTime", "device.decreaseTime", width: 1, height: 1, decoration: "flat") {
+			state "default", action:"decreaseDuration", label:'-30m'
 		}
 		valueTile("holdtime", "device.holdtime", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
 			state "default", label:'${currentValue}' // icon TBC
 		}
-        standardTile("setTempHold", "setTempHold", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
+        
+        standardTile("setTempHold", "setTempHold", inactiveLabel: false, decoration: "flat", width: 3, height: 1) {
 			state "off", action:"setTempHoldOn", label:'Set Temp' // icon TBC
 			state "offhold", action:"setTempHoldOn", label:'Set Hold' // icon TBC
             state "cancel", action:"setTempHoldOff", label:'Cancel Hold' // icon TBC
@@ -139,8 +159,8 @@ metadata {
 		details(
 				[
 				"temperature",
-				"nextSetpointText", "raiseSetpoint", "increaseTime", "holdtime",
-				"statusText", "lowerSetpoint", "thermostatSetpoint", "setTempHold",
+				"lowerSetpoint", "heatingSetpoint", "raiseSetpoint", "decreaseTime", "holdtime", "increaseTime", 
+				"nextSetpointText", "statusText", "setTempHold",
 				"floortemp", "away", "refresh"])
 	}
 }
@@ -151,7 +171,7 @@ def refresh() {
 def refreshinfo() {
 	log.debug "Refreshing thermostat data from parent"
     //Get the parent to request a refresh but this should be the parent showing the actual refresh command
-    parent.childRequestingRefresh()
+    parent.childRequestingRefresh(device.deviceNetworkId)
 }
 def ping() {
 }
@@ -180,7 +200,8 @@ def processNeoResponse(result) {
         if (result.relayresult.containsKey("result")) {
     		//We have a success result from a command so process it here by pasting in the response and updating tile
             log.debug "success on last command: " + result.relayresult.result
-            refreshinfo()
+            //Would love to refresh information at this point, but it will fail as the Neostats take a while to update
+            //refreshinfo()
         	cmds << sendEvent(name: "statusText", value: result.relayresult)
         }
     }
@@ -201,12 +222,22 @@ def processNeoResponse(result) {
         	//Got a set temperature so update it if above 15 (otherwise Away will set this to 5° annoyingly)
         	def settempint = result.CURRENT_SET_TEMPERATURE.toBigDecimal().toInteger()
             if (settempint > 15) {
-            	cmds << sendEvent(name: "thermostatSetpoint", value: settempint)
+            	cmds << sendEvent(name: "heatingSetpoint", value: settempint)
             }
         }
         if (result.containsKey("CURRENT_FLOOR_TEMPERATURE")) {
         	//Update the floor temperature in case anybody cares!
-        	cmds << sendEvent(name: "floortemp", value: result.CURRENT_FLOOR_TEMPERATURE)
+            def flrtempstring
+            if (result.CURRENT_FLOOR_TEMPERATURE == 255) {
+            	flrtempstring = "N/A"
+            }
+            else {
+            	flrtempstring = result.CURRENT_FLOOR_TEMPERATURE
+            }
+        	cmds << sendEvent(name: "floortemp", value: flrtempstring)
+        }
+        if (result.containsKey("DEMAND")) {
+        	//Update the tiles to show that it is currently heating (if desired)
         }
         if (result.containsKey("HOLD_TIME")) {
         	if (result.HOLD_TIME == "0:00") {
@@ -299,11 +330,12 @@ def awayOff() {
     return cmds
 }
 
-def setTempHoldOn() {
+def setTempHoldOn(chosentemp) {
 	def cmds = []
-	if (state.debug) log.debug "${device.label}: set temp hold - setTempOn()"
-    def newtemp = device.currentValue("thermostatSetpoint")
-    log.debug device.currentValue("holdtime")
+    def newtemp = device.currentValue("heatingSetpoint")
+    
+    if (state.debug) log.debug "${device.label}: set temp hold to ${newtemp} for ${device.currentValue("holdtime")} - setTempOn()"
+
     if (device.currentValue("holdtime") == "0:00") {
     	parent.childSetTemp(newtemp.toString(), device.deviceNetworkId)
     }
@@ -350,6 +382,38 @@ def lowerSetpoint() {
 }
 
 
-def changeSetpoint() {
-//Change to specific setpoint (may not be used? or could be used with boost)
+//Functions required by Thermostat capability
+
+def setHeatingSetpoint(number) {
+	parent.childSetTemp(number.toString(), device.deviceNetworkId)
+}
+
+def off() {
+	//In this case we'll just set the thermostat to be away
+	away()
+}
+def heat() {
+	//First turn away mode off if it is on
+	awayOff()
+    //Now set anything else if needed
+}
+def emergencyHeat() {
+}
+
+
+def setThermostatMode(chosenmode) {
+}
+def fanOn() {
+}
+def fanAuto() {
+}
+def fanCirculate() {
+}
+def setThermostatFanMode(chosenmode) {
+}
+def cool() {
+}
+def setCoolingSetpoint(number) {
+}
+def auto() {
 }
