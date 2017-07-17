@@ -86,7 +86,7 @@ metadata {
             state "active", label:"Disarmed", action:"", backgroundColor:"#00CC00"
         }
         
-        (1..12).each { n ->
+        (1..8).each { n ->
             valueTile("zonename$n", "visonicname$n", height: 1, width: 2) {
                 state "default", label:'${currentValue}', backgroundColor:"#FFFFFF"}
             standardTile("zone$n", "visonic$n", height: 1, width: 1) {
@@ -141,10 +141,10 @@ metadata {
              
              // Add all your zones here (zonenameX first then zoneX)- e.g. add "zonename6", "zone6" if you want to display zone6 in the alarm panel
              "zonename1", "zone1", "zonename2", "zone2", "zonename3", "zone3", "zonename4", "zone4",
-             "zonename5", "zone5", 
+             "zonename5", "zone5", "zonename6", "zone6", 
              
              "refresh", "configure", "ip", "alarm", "createtile", "removetile"
-             //, "testtile" //If you have trouble creating your child zones you can uncomment the start of this line (remove // before the comma)
+             , "testtile" //If you have trouble creating your child zones you can uncomment the start of this line (remove // before the comma)
              				//After pressing the "test_function" button on your phone you can re-comment it, to tidy up your alarm panel device.
                             //This is only needed if you have trouble creating your zones.
              ])
@@ -188,9 +188,14 @@ def Vcreatezonedevices() {
 
 def Vremovezonedevices() {
 	log.debug "Removing Child Zone Devices"
-	getChildDevices()?.each {
-    	deleteChildDevice(it.deviceNetworkId)
+    try {
+        getChildDevices()?.each {
+            deleteChildDevice(it.deviceNetworkId)
+        }
+    } catch (e) {
+        log.error "Error deleting devices, probably none exist: ${e}"
     }
+    
     //Update tile so that we can create devices again if desired
     sendEvent(name: "createzonedevices", value: "cancreatezonedevices", displayed: false)
 }
@@ -201,13 +206,18 @@ def Vtestfunction() {
     if (device.currentValue("createzonedevices") == "cancreatezonedevices") {
     	log.debug "state correct"
     }
-    def curdevice = getChildDevices()?.find { it.deviceNetworkId == "visonictestdevice"}
-    if (curdevice) {
-    	//Do nothing as we already have a test device
+    try {
+        def curdevice = getChildDevices()?.find { it.deviceNetworkId == "visonictestdevice"}
+        if (curdevice) {
+            //Do nothing as we already have a test device
+        }
+        else {
+            addChildDevice("cjcharles0", "Visonic Contact Zone", "visonictestdevice", device.hub.id, [name: "visonic test device", label: name, completedSetup: true])
+        }
+    } catch (e) {
+        log.error "Couldnt find device, probably doesn't exist so safe to add a new one: ${e}"
+        addChildDevice("cjcharles0", "Visonic Contact Zone", "visonictestdevice", device.hub.id, [name: "visonic test device", label: name, completedSetup: true])
     }
-    else {
-    	addChildDevice("cjcharles0", "Visonic Contact Zone", "visonictestdevice", device.hub.id, [name: "visonic test device", label: name, completedSetup: true])
-	}
 }
 
 //This will configure the WeMos D1 to talk to ST
@@ -365,9 +375,6 @@ def parse(description) {
         	//log.debug curzone.zoneid + " - " + curzone.zonename + " - " + curzone.zonetype
             //Here we create a child device with the right name and DNI
 
-/*            def thiszonename = ""
-            def tempzonename = getzonename()
-            log.debug tempzonename*/
             def thiszonename = ""
             if (prename != null) {thiszonename = thiszonename + prename + " "}
             thiszonename = thiszonename + curzone.zonename
@@ -381,7 +388,6 @@ def parse(description) {
             //Could now do something like this
             //curdevice?.inactive()
             
-
             //If it is a magnetic sensor then add it as a contact sensor and update the tile on this device
             if (curzone.zonetype == "Magnet") {
             	addChildDevice("cjcharles0", "Visonic Contact Zone", "visoniczone${curzone.zoneid}", device.hub.id, [name: thiszonename])
