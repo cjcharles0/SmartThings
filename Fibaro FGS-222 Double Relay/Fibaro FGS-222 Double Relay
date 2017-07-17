@@ -317,13 +317,13 @@ def zwaveEvent(physicalgraph.zwave.commands.multichannelv3.MultiChannelCmdEncap 
     }
     
     //Now if there is a child device then send it a state update
-//    log.debug "$device.deviceNetworkId-sw${curswitch}"
-//    def childDevice = childDevices?.find{it.deviceNetworkId == "$device.deviceNetworkId-sw${curswitch}"}
-//       if (childDevice)
-//          childDevice.sendEvent(name: "switch", value: curstate)
-    def childDevice = getChildDevices()?.find { it.deviceNetworkId == "$device.deviceNetworkId-sw${curswitch}"}
-       if (childDevice)
-          childDevice.sendEvent(name: "switch", value: curstate)
+    try {
+        def childDevice = getChildDevices()?.find { it.deviceNetworkId == "$device.deviceNetworkId-sw${curswitch}"}
+           if (childDevice)
+              childDevice.sendEvent(name: "switch", value: curstate)
+    } catch (e) {
+        log.error "Couldn't find child device, probably doesn't exist and hence no problem: ${e}"
+    }
     
     
 //    childDevices?.each { childDevice ->
