@@ -111,10 +111,19 @@ metadata {
 
 //This is a test command that can be used for whatever reason
 def testcommand(){
-	log.debug "Sometimes it refuses to create a device, forcefully adding one now to fix things"
-    //childRequestingRefresh()
-    //addChildDevice("cjcharles0", "Neo Thermostat", "neostatTemp", device.hub.id, [name: "neo111"])
-    addChildDevice("cjcharles0", "Neo Thermostat", "neostatTemp", device.hub.id, [name: "neo tempt", label: name, completedSetup: true]) //"cjcharles0", //device.hub.id
+	log.debug "Sometimes it refuses to create a device, adding one test device now to fix things"
+    try {
+        def curdevice = getChildDevices()?.find { it.deviceNetworkId == "visonictestdevice"}
+        if (curdevice) {
+            //Do nothing as we already have a test device
+        }
+        else {
+            addChildDevice("cjcharles0", "Neo Thermostat", "neostatTemp", device.hub.id, [name: "neo tempt", label: name, completedSetup: true]) //"cjcharles0", //device.hub.id
+        }
+    } catch (e) {
+        log.error "Couldnt find device, probably doesn't exist so safe to add a new one: ${e}"
+        addChildDevice("cjcharles0", "Neo Thermostat", "neostatTemp", device.hub.id, [name: "neo tempt", label: name, completedSetup: true]) //"cjcharles0", //device.hub.id
+    }
 }
 
 
@@ -135,6 +144,7 @@ def refreshipaddresses() {
     return cmds
 }
 def refresh() {
+	log.debug "parent triggered refresh"
     childRequestingRefresh()
 }
 def installed() {
@@ -167,8 +177,12 @@ private getthermostats(){
 }
 private removethermostats(){
 	log.debug "Removing Child Thermostats"
-	getChildDevices()?.each {
-    	deleteChildDevice(it.deviceNetworkId)
+    try {
+        getChildDevices()?.each {
+            deleteChildDevice(it.deviceNetworkId)
+        }
+    } catch (e) {
+        log.error "Error deleting devices, probably none exist so all actually ok: ${e}"
     }
 }
 
@@ -188,7 +202,7 @@ def setAllAwayOff(){
 
 
 //These functions can be called by the children in order to request something from the bridge
-def childRequestingRefresh() {
+def childRequestingRefresh(String dni) {
 	//Send Refresh command - this will occur for all thermostats, not just the one which requested it
     log.debug "Requesting refreshed info for all children"
 	getAction("/neorelay?device=hubzonerefresh&command={\"INFO\":0}")
@@ -295,11 +309,11 @@ def parse(description) {
                     //Prepare DNI - Remove spaces and replace with a hyphen to prevent problems with HTML requests
                     thisthermostatdni = "neostat${item.key.replaceAll(" ", "-")}"
                     log.debug "Adding child Name: ${thisthermostatname}, DNI: ${thisthermostatdni}, ID: ${item.value} to ${device.hub.id}"
-                    addChildDevice( "Neo Thermostat", thisthermostatdni, null, [name: thisthermostatname, label: thisthermostatname, completedSetup: true]) //"cjcharles0", //device.hub.id
+                    addChildDevice("cjcharles0", "Neo Thermostat", thisthermostatdni, device.hub.id, [name: thisthermostatname]) //, , label: thisthermostatname, completedSetup: true //device.hub.id
                 }
         	}
         //Finally send a refresh command to get the latest info for each thermostat
-        cmds << refresh()
+        //cmds << refresh()
         }
 		if (result.relaydevice == "hubzonerefresh") {
         	//Device is a fake device for refreshing all zone info, so process responses out to each thermostat device
