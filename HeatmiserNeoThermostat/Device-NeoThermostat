@@ -51,6 +51,7 @@ metadata {
         command "raiseSetpoint" // Custom
 		command "lowerSetpoint" // Custom
 		command "increaseDuration" // Custom
+		command "decreaseDuration" // Custom
 		command "setTempHoldOn" // Custom
 		command "setTempHoldOff" // Custom
         command "away" // Custom
@@ -82,12 +83,12 @@ metadata {
 					backgroundColors:[
 							// Celsius
 							[value: 0, color: "#153591"],
-							[value: 7, color: "#1e9cbb"],
+							[value: 9, color: "#1e9cbb"],
 							[value: 15, color: "#90d2a7"],
-							[value: 23, color: "#44b621"],
+							[value: 22, color: "#44b621"],
 							[value: 28, color: "#f1d801"],
-							[value: 35, color: "#d04e00"],
-							[value: 37, color: "#bc2323"]
+							[value: 32, color: "#d04e00"],
+							[value: 36, color: "#bc2323"]
 					])
 			}
 
@@ -98,19 +99,18 @@ metadata {
 				attributeState("Idle (Custom)", backgroundColor:"#44b621")
 				attributeState("Idle (Day Off)", backgroundColor:"#44b621")
 				attributeState("Idle (Economy)", backgroundColor:"#44b621")
-				attributeState("Idle (Away)", backgroundColor:"#44b621")
 				attributeState("Off", backgroundColor:"#269bd2")
 			}
 		}
        
 		valueTile("heatingSetpoint", "device.heatingSetpoint", width: 1, height: 1, decoration: "flat") {
-			state "heatingSetpoint", label:'${currentValue}°C', backgroundColor:"#ffffff"
+			state "default", label:'${currentValue}°C', backgroundColor:"#ffffff"
 		}
-		standardTile("raiseSetpoint", "device.raisethermostatSetpoint", width: 1, height: 1, decoration: "flat") {
-			state "setpoint", action:"raiseSetpoint", label:'+1°C'//, icon:"st.thermostat.thermostat-up"
+		standardTile("raisethermostatSetpoint", "device.raisethermostatSetpoint", width: 1, height: 1, decoration: "flat") {
+			state "default", action:"raiseSetpoint", label:'+1°C'//, icon:"st.thermostat.thermostat-up"
 		}
-		standardTile("lowerSetpoint", "device.lowerthermostatSetpoint", width: 1, height: 1, decoration: "flat") {
-			state "setpoint", action:"lowerSetpoint", label:'-1°C'//, icon:"st.thermostat.thermostat-down"
+		standardTile("lowerthermostatSetpoint", "device.lowerthermostatSetpoint", width: 1, height: 1, decoration: "flat") {
+			state "default", action:"lowerSetpoint", label:'-1°C'//, icon:"st.thermostat.thermostat-down"
 		}
         
 		standardTile("increaseTime", "device.increaseTime", width: 1, height: 1, decoration: "flat") {
@@ -123,10 +123,11 @@ metadata {
 			state "default", label:'${currentValue}' // icon TBC
 		}
         
-        standardTile("setTempHold", "setTempHold", inactiveLabel: false, decoration: "flat", width: 3, height: 1) {
-			state "off", action:"setTempHoldOn", label:'Set Temp' // icon TBC
-			state "offhold", action:"setTempHoldOn", label:'Set Hold' // icon TBC
-            state "cancel", action:"setTempHoldOff", label:'Cancel Hold' // icon TBC
+        standardTile("setTempHold", "setTempHold", inactiveLabel: false, decoration: "flat", width: 2, height: 1) {
+			state "settemp", action:"setTempHoldOn", label:'Set Temp' // icon TBC
+			state "sethold", action:"setTempHoldOn", label:'Set Hold' // icon TBC
+            state "tempwasset", action:"setTempHoldOn", label:'Temp Was Set' // icon TBC
+            state "cancelhold", action:"setTempHoldOff", label:'Cancel Hold' // icon TBC
 		}
         
         
@@ -159,7 +160,7 @@ metadata {
 		details(
 				[
 				"temperature",
-				"lowerSetpoint", "heatingSetpoint", "raiseSetpoint", "decreaseTime", "holdtime", "increaseTime", 
+				"lowerthermostatSetpoint", "heatingSetpoint", "raisethermostatSetpoint", "decreaseTime", "holdtime", "increaseTime", 
 				"nextSetpointText", "statusText", "setTempHold",
 				"floortemp", "away", "refresh"])
 	}
@@ -255,10 +256,10 @@ def processNeoResponse(result) {
             	cmds << sendEvent(name: "nextSetpointText", value: statusTextmsg)
                 //Lastly if we are here then there should be not holds in place and hence lets update the set button text
                 if (device.currentValue("holdtime") == "0:00") {
-                	cmds << sendEvent(name: "setTempHold", value: "off")
+                	cmds << sendEvent(name: "setTempHold", value: "settemp")
                 }
                 else {    
-                	cmds << sendEvent(name: "setTempHold", value: "offHold")
+                	cmds << sendEvent(name: "setTempHold", value: "setHold")
                 }
             }
             else {
@@ -289,19 +290,57 @@ def increaseDuration() {
     if (device.currentValue("holdtime")?.contains(':')) {
         def hoursandmins = device.currentValue("holdtime").split(":")
         //Now we calculate and update hours and minutes and send it to the holdtime tile
-        if (hoursandmins[1] == "30") {
-            hoursandmins[1] = "00"
-            if (hoursandmins[0].toInteger() < 3) {
-                hoursandmins[0] = (hoursandmins[0].toInteger() + 1)
-            }
-            else {
-                hoursandmins[0] = "0"
-                cmds << sendEvent(name: "setTempHold", value: "off")
-            }
+        if (hoursandmins[1] == "00") {
+            hoursandmins[1] = "30"
         }
         else {
-            hoursandmins[1] = "30"
-            cmds << sendEvent(name: "setTempHold", value: "offHold")
+        	hoursandmins[1] = "00"
+            hoursandmins[0] = (hoursandmins[0].toInteger() + 1).toString()
+        }
+        //Reset hours if 5 or more
+        if (hoursandmins[0].toInteger() >= 5) {
+             hoursandmins[0] = "0"
+             if (device.currentValue("setTempHold") != "cancelhold") {
+             	cmds << sendEvent(name: "setTempHold", value: "settemp")
+             }
+         }
+        else {
+        	if (device.currentValue("setTempHold") != "cancelhold") {
+            	cmds << sendEvent(name: "setTempHold", value: "setHold")
+            }
+        }
+        cmds << sendEvent(name: "holdtime", value: "${hoursandmins[0]}:${hoursandmins[1]}", displayed: true)
+    }
+    else {
+    	//Here we should reset as it hasnt found
+		cmds << sendEvent(name: "holdtime", value: "0:00", displayed: true)
+        return cmds
+    }
+    return cmds
+}
+
+def decreaseDuration() {
+	def cmds = []
+    if (device.currentValue("holdtime")?.contains(':')) {
+        def hoursandmins = device.currentValue("holdtime").split(":")
+        //Now we calculate and update hours and minutes and send it to the holdtime tile
+        if ((hoursandmins[0] == "0") && (hoursandmins[1] == "00")) {
+            hoursandmins[0] = "5"
+            if (device.currentValue("setTempHold") != "cancelhold") {
+            	cmds << sendEvent(name: "setTempHold", value: "setHold")
+            }
+        }
+        if (hoursandmins[1] == "30") {
+            hoursandmins[1] = "00"
+        }
+        else {
+        	hoursandmins[1] = "30"
+            hoursandmins[0] = (hoursandmins[0].toInteger() - 1).toString()
+        }
+        if ((hoursandmins[0] == "0") && (hoursandmins[1] == "00")) {
+        	if (device.currentValue("setTempHold") != "cancelhold") {
+            	cmds << sendEvent(name: "setTempHold", value: "settemp")
+        	}
         }
         cmds << sendEvent(name: "holdtime", value: "${hoursandmins[0]}:${hoursandmins[1]}", displayed: true)
     }
@@ -338,14 +377,15 @@ def setTempHoldOn(chosentemp) {
 
     if (device.currentValue("holdtime") == "0:00") {
     	parent.childSetTemp(newtemp.toString(), device.deviceNetworkId)
+		cmds << sendEvent(name: "setTempHold", value: "tempwasset")
     }
     else {
      	def hours = device.currentValue("holdtime").take(1)
     	def minutes = device.currentValue("holdtime").reverse().take(2).reverse()
         log.debug hours + " hours, " + minutes + "mins"
 		parent.childHold(newtemp.toString(), hours, minutes, device.deviceNetworkId)
+    	cmds << sendEvent(name: "setTempHold", value: "cancelhold")
 	}
-    cmds << sendEvent(name: "setTempHold", value: "cancel")
     return cmds
 }
 
@@ -356,10 +396,10 @@ def setTempHoldOff() {
 	parent.childCancelHold(device.deviceNetworkId)
     if (device.currentValue("holdtime") == "0:00") {
     	//We have 0:00 as hh:mm, so the next command will be a set_temp
-        cmds << sendEvent(name: "setTempHold", value: "off")
+        cmds << sendEvent(name: "setTempHold", value: "settemp")
     }
     else {
-    	cmds << sendEvent(name: "setTempHold", value: "offHold")
+    	cmds << sendEvent(name: "setTempHold", value: "setHold")
     }
     return cmds
 }
@@ -367,17 +407,19 @@ def setTempHoldOff() {
 
 def raiseSetpoint() {
 	//Called by tile to increase set temp box
+    //log.debug "raise"
 	def cmds = []
-	def newtemp = device.currentValue("thermostatSetpoint").toInteger() + 1
-    cmds << sendEvent(name: "thermostatSetpoint", value: newtemp)
+	def newtemp = device.currentValue("heatingSetpoint").toInteger() + 1
+    cmds << sendEvent(name: "heatingSetpoint", value: newtemp)
     return cmds
 }
 
 def lowerSetpoint() {
-//called by tile to decrease set temp box
+    //called by tile to decrease set temp box
+    //log.debug "lower"
 	def cmds = []
-	def newtemp = device.currentValue("thermostatSetpoint").toInteger() - 1
-    cmds << sendEvent(name: "thermostatSetpoint", value: newtemp)
+	def newtemp = device.currentValue("heatingSetpoint").toInteger() - 1
+    cmds << sendEvent(name: "heatingSetpoint", value: newtemp)
     return cmds
 }
 
