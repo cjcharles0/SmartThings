@@ -19,6 +19,7 @@
 metadata {
 	definition (name: "Visonic Motion Zone", namespace: "cjcharles0", author: "Chris Charles") {
 		capability "Motion Sensor"
+		capability "Sensor"
 
 		command "inactive"
 		command "active"
