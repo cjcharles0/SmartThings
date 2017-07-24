@@ -19,6 +19,7 @@
 metadata {
 	definition (name: "Visonic Contact Zone", namespace: "cjcharles0", author: "Chris Charles") {
 		capability "Contact Sensor"
+		capability "Sensor"
 
 		command "open"
         command "close"
