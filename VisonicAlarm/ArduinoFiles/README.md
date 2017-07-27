@@ -1,0 +1,1 @@
+These files are needed if you have a very old Powermax + or an American style Powermax Pro. Since the UART pins of the ESP dont work with the Powermax and I have used an Arduino in between in order to get clean timing of the Serial data.
