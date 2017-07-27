@@ -354,12 +354,12 @@ def parse(description) {
             	break
             case "Open":
 				//log.debug "Got Open zone - " + result.zone_id
-            	sendEvent(name: "visonic"+result.zone_id, value: "open", displayed: true, isStateChange: true)
+            	sendEvent(name: "visonic"+result.zone_id, value: "open", displayed: false, isStateChange: true)
                 curdevice?.open()
                 break
             case "Closed":
 				//log.debug "Got Closed zone - " + result.zone_id
-            	sendEvent(name: "visonic"+result.zone_id, value: "closed", displayed: true, isStateChange: true)
+            	sendEvent(name: "visonic"+result.zone_id, value: "closed", displayed: false, isStateChange: true)
                 curdevice?.close()
                 break
 		}
