@@ -47,6 +47,7 @@ metadata {
         command "fanCirculate" //Required by ST for thermostat type
         command "setThermostatFanMode" //Required by ST for thermostat type
         command "auto" //Required by ST for thermostat type
+        command "ensureAlexaCapableMode"
         
         command "raiseSetpoint" // Custom
 		command "lowerSetpoint" // Custom
@@ -91,15 +92,20 @@ metadata {
 							[value: 36, color: "#bc2323"]
 					])
 			}
-
 			// Operating State - used to get background colour when type is 'thermostat'.
-			tileAttribute("device.thermostatStatus", key: "OPERATING_STATE") {
-				attributeState("Heating", backgroundColor:"#ffa81e", defaultState: true)
-				attributeState("Idle (Auto)", backgroundColor:"#44b621")
-				attributeState("Idle (Custom)", backgroundColor:"#44b621")
-				attributeState("Idle (Day Off)", backgroundColor:"#44b621")
-				attributeState("Idle (Economy)", backgroundColor:"#44b621")
-				attributeState("Off", backgroundColor:"#269bd2")
+            /*tileAttribute("device.thermostatOperatingState", key: "OPERATING_STATE") {
+                attributeState("heating", backgroundColor:"#e86d13")
+                attributeState("idle", backgroundColor:"#00A0DC")
+                attributeState("cooling", backgroundColor:"#00A0DC")
+            }*/
+            tileAttribute("device.thermostatMode", key: "THERMOSTAT_MODE") {
+                attributeState("auto", label:' ')
+                //attributeState("heat", label:' ')
+                //attributeState("off", label:' ')
+                //attributeState("cool", label:' ')
+            }
+			tileAttribute("device.heatingSetpoint", key: "HEATING_SETPOINT") {
+				attributeState("heatingSetpoint", label:'', backgroundColor:"#ffffff", defaultState: true)
 			}
 		}
        
@@ -150,6 +156,9 @@ metadata {
 			state "default", action:"refreshinfo", label: "Refresh", icon:"st.secondary.refresh"
 		}
         
+		standardTile("hanges", "device.hanges", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
+			state "default", action:"ensureAlexaCapableMode", label: "changestate"
+		}
         
 		standardTile("off", "device.off", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
 			state "on", action:"off", icon:"st.thermostat.heating-cooling-off"
@@ -162,18 +171,25 @@ metadata {
 				"temperature",
 				"lowerthermostatSetpoint", "heatingSetpoint", "raisethermostatSetpoint", "decreaseTime", "holdtime", "increaseTime", 
 				"nextSetpointText", "statusText", "setTempHold",
-				"floortemp", "away", "refresh"])
+				"floortemp", "away", "refresh", "hanges"])
 	}
+}
+
+def ensureAlexaCapableMode() {
+	sendEvent(name: "thermostatMode", value: "auto")
+    //sendEvent(name: "thermostatOperatingState", value: "idle")
 }
 
 
 def refresh() {
 }
+
 def refreshinfo() {
 	log.debug "Refreshing thermostat data from parent"
     //Get the parent to request a refresh but this should be the parent showing the actual refresh command
     parent.childRequestingRefresh(device.deviceNetworkId)
 }
+
 def ping() {
 }
 def poll() {
@@ -183,8 +199,9 @@ def installed() {
 }
 def updated() {
 	//Here we have a new device so lets ensure that all the tiles are correctly filled with something
+    ensureAlexaCapableMode()
     def cmds = []
-    cmds << sendEvent(name: "thermostatSetpoint", value: 15)
+    cmds << sendEvent(name: "heatingSetpoint", value: 15)
     cmds << sendEvent(name: "holdtime", value: "0:00")
     return cmds
 }
@@ -220,9 +237,9 @@ def processNeoResponse(result) {
             cmds << sendEvent(name: "temperature", value: result.CURRENT_TEMPERATURE)
         }
         if (result.containsKey("CURRENT_SET_TEMPERATURE")) {
-        	//Got a set temperature so update it if above 15 (otherwise Away will set this to 5° annoyingly)
-        	def settempint = result.CURRENT_SET_TEMPERATURE.toBigDecimal().toInteger()
-            if (settempint > 15) {
+        	//Got a set temperature so update it if above 8 (otherwise Away will set this to 5° annoyingly)
+        	def settempint = result.CURRENT_SET_TEMPERATURE.toBigDecimal().toInteger() + 0 //.toBigDecimal().toInteger()
+            if (settempint >= 8) {
             	cmds << sendEvent(name: "heatingSetpoint", value: settempint)
             }
         }
@@ -407,7 +424,6 @@ def setTempHoldOff() {
 
 def raiseSetpoint() {
 	//Called by tile to increase set temp box
-    //log.debug "raise"
 	def cmds = []
 	def newtemp = device.currentValue("heatingSetpoint").toInteger() + 1
     cmds << sendEvent(name: "heatingSetpoint", value: newtemp)
@@ -416,33 +432,28 @@ def raiseSetpoint() {
 
 def lowerSetpoint() {
     //called by tile to decrease set temp box
-    //log.debug "lower"
 	def cmds = []
 	def newtemp = device.currentValue("heatingSetpoint").toInteger() - 1
     cmds << sendEvent(name: "heatingSetpoint", value: newtemp)
     return cmds
 }
 
-
-//Functions required by Thermostat capability
-
+//This is the command used by Amazon Alexa
 def setHeatingSetpoint(number) {
 	parent.childSetTemp(number.toString(), device.deviceNetworkId)
 }
 
+//This command is probably not used, but justan audio way of setting thermostat to away (may not work because of Alexa)
 def off() {
 	//In this case we'll just set the thermostat to be away
 	away()
 }
+
+//Dont use any of these yet as I havent worked out why they would be needed!
 def heat() {
-	//First turn away mode off if it is on
-	awayOff()
-    //Now set anything else if needed
 }
 def emergencyHeat() {
 }
-
-
 def setThermostatMode(chosenmode) {
 }
 def fanOn() {
