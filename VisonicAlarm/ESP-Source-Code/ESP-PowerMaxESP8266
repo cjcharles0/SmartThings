@@ -5,6 +5,8 @@
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPUpdateServer.h>
 #include <WiFiManager.h>
+#include <ESP8266SSDP.h>
+#include <ESP8266mDNS.h>
 #include <ArduinoOTA.h>
 #include <EEPROM.h>
 
@@ -34,7 +36,8 @@ IPAddress PM_LAN_BROADCAST_IP(192, 168, 32, 12);
 //Specify your WIFI settings:
 //#define WIFI_SSID "SSIDHere"
 //#define WIFI_PASS "PSKHere"
-
+#define Firmware_Date __DATE__
+#define Firmware_Time __TIME__
 
 
 //Default values for SmartThings, these are only used when first booting and stored in EEPROM from first boot onwards, no need to change
@@ -366,7 +369,13 @@ void handleSettings() {
   client.print(PORT_FOR_ST);
   client.print(",\r\n\"inactivity_seconds\":");
   client.print((inactivity_seconds));
-  client.print("}\r\n");
+  
+  client.print(",\r\n\"neohub_relay_firmware_date\":\"");
+  client.print(Firmware_Date);
+  client.print(" - ");
+  client.print(Firmware_Time);
+  
+  client.print("\"}\r\n");
   client.stop();
 }
 
@@ -530,6 +539,17 @@ void setup(void){
       delay(5000);
   }
   
+  // Set up mDNS responder:
+  // - first argument is the domain name, in this example
+  //   the fully-qualified domain name is "esp8266.local"
+  // - second argument is the IP address to advertise
+  //   we send our IP address on the WiFi network
+  if (!MDNS.begin("esp8266-PowermaxBridge")) {
+    Serial.println("Error setting up MDNS responder!");
+    while(1) { 
+      delay(1000);
+    }
+  }
 
   server.on("/", handleRoot);
   server.on("/status", handleStatus);
@@ -553,6 +573,9 @@ void setup(void){
   server.on("/ping", [](){
     server.send(200, "text/plain", "{\"ping_alive\": true}");
   });
+  server.on("/description.xml", HTTP_GET, [](){
+    SSDP.schema(server.client());
+  });
 
 #ifdef PM_ENABLE_OTA_UPDATES
     //Link the HTTP Updater with the web sesrver
@@ -562,6 +585,29 @@ void setup(void){
 
   server.onNotFound(handleNotFound);
   server.begin();
+
+  //Now setup variables for use in SSDP section
+  char macstring[16];
+  byte mac[6];
+  WiFi.macAddress(mac);
+  sprintf(macstring, "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+  //Now initialise SSDP
+  SSDP.setSchemaURL("description.xml");
+  SSDP.setHTTPPort(80);
+  SSDP.setName("Powermax Alarm Interface Device");
+  SSDP.setSerialNumber(macstring);
+  SSDP.setURL("\\");
+  SSDP.setModelName("Powermax Alarm ESP Interface");
+  SSDP.setModelNumber(macstring);
+  SSDP.setModelURL("https://community.smartthings.com/t/release-visonic-powermax-alarm/84119");
+  SSDP.setManufacturer("Chris Charles");
+  SSDP.setManufacturerURL("https://community.smartthings.com/t/release-visonic-powermax-alarm/84119");
+  SSDP.setDeviceType("upnp:rootdevice");
+  SSDP.begin();
+
+  // Add service to MDNS-SD
+  MDNS.addService("http", "tcp", 80);
 
 #ifdef PM_ENABLE_TELNET_ACCESS
   telnetServer.begin();
