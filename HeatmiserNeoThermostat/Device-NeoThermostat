@@ -24,7 +24,7 @@ import groovy.json.JsonSlurper
 metadata {
 	definition (name: "Neo Thermostat", namespace: "cjcharles0", author: "Chris Charles")
     { 
-    	capability "Refresh" //This is kept here so we could drive refreshes by the individual thermostats
+    	capability "Refresh"
 		capability "Actuator"
 		capability "Temperature Measurement"
 		capability "Thermostat"
@@ -32,7 +32,6 @@ metadata {
 		capability "Sensor"
         capability "Configuration"
 		
-		command "refresh" // Refresh - this does nothing as otherwise there will be too many refresh commands being sent
         command "refreshinfo" //This is the actual refresh details command to update all thermostats
         
         command "setHeatingSetpoint" //Required by ST for thermostat type
@@ -130,10 +129,10 @@ metadata {
 		}
         
         standardTile("setTempHold", "setTempHold", inactiveLabel: false, decoration: "flat", width: 2, height: 1) {
-			state "settemp", action:"setTempHoldOn", label:'Set Temp' // icon TBC
-			state "sethold", action:"setTempHoldOn", label:'Set Hold' // icon TBC
-            state "tempwasset", action:"setTempHoldOn", label:'Temp Was Set' // icon TBC
-            state "cancelhold", action:"setTempHoldOff", label:'Cancel Hold' // icon TBC
+			state "setTemp", action:"setTempHoldOn", label:'Set Temp' // icon TBC
+			state "setHold", action:"setTempHoldOn", label:'Set Hold' // icon TBC
+            state "tempWasSet", action:"setTempHoldOn", label:'Temp Was Set' // icon TBC
+            state "cancelHold", action:"setTempHoldOff", label:'Cancel Hold' // icon TBC
 		}
         
         
@@ -156,8 +155,8 @@ metadata {
 			state "default", action:"refreshinfo", label: "Refresh", icon:"st.secondary.refresh"
 		}
         
-		standardTile("hanges", "device.hanges", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
-			state "default", action:"ensureAlexaCapableMode", label: "changestate"
+		standardTile("alexaState", "alexaState", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
+			state "default", action:"ensureAlexaCapableMode", label: "Set Alexa State"
 		}
         
 		standardTile("off", "device.off", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
@@ -169,9 +168,10 @@ metadata {
 		details(
 				[
 				"temperature",
-				"lowerthermostatSetpoint", "heatingSetpoint", "raisethermostatSetpoint", "decreaseTime", "holdtime", "increaseTime", 
+				"lowerthermostatSetpoint", "heatingSetpoint", "raisethermostatSetpoint",
+                "decreaseTime", "holdtime", "increaseTime", 
 				"nextSetpointText", "statusText", "setTempHold",
-				"floortemp", "away", "refresh", "hanges"])
+				"floortemp", "away", "refresh", "alexaState"])
 	}
 }
 
@@ -182,23 +182,27 @@ def ensureAlexaCapableMode() {
 
 
 def refresh() {
-}
-
-def refreshinfo() {
 	log.debug "Refreshing thermostat data from parent"
     //Get the parent to request a refresh but this should be the parent showing the actual refresh command
     parent.childRequestingRefresh(device.deviceNetworkId)
+    runEvery5Minutes(refresh)
 }
 
 def ping() {
+    log.debug "ping()"
+    refresh()
 }
 def poll() {
+    log.debug "poll()"
+    refresh()
 }
 def installed() {
+    log.debug "installed()"
 	updated()
 }
 def updated() {
 	//Here we have a new device so lets ensure that all the tiles are correctly filled with something
+    log.debug "updated()"
     ensureAlexaCapableMode()
     def cmds = []
     cmds << sendEvent(name: "heatingSetpoint", value: 15)
@@ -228,7 +232,7 @@ def processNeoResponse(result) {
         //First store the update date/time
         def dateTime = new Date()
         def updateddatetime = dateTime.format("yyyy-MM-dd HH:mm", location.timeZone)
-        cmds << sendEvent(name: "statusText", value: "Last refreshed info at ${updateddatetime}")
+        cmds << sendEvent(name: "statusText", value: "Last refreshed info at ${updateddatetime}", displayed: false, isStateChange: true)
         
         //Now update the various fields on the thermostat
         if (result.containsKey("CURRENT_TEMPERATURE")) {
@@ -240,19 +244,19 @@ def processNeoResponse(result) {
         	//Got a set temperature so update it if above 8 (otherwise Away will set this to 5° annoyingly)
         	def settempint = result.CURRENT_SET_TEMPERATURE.toBigDecimal().toInteger() + 0 //.toBigDecimal().toInteger()
             if (settempint >= 8) {
-            	cmds << sendEvent(name: "heatingSetpoint", value: settempint)
+            	cmds << sendEvent(name: "heatingSetpoint", value: settempint, displayed: false)
             }
         }
         if (result.containsKey("CURRENT_FLOOR_TEMPERATURE")) {
         	//Update the floor temperature in case anybody cares!
             def flrtempstring
-            if (result.CURRENT_FLOOR_TEMPERATURE == 255) {
+            if (result.CURRENT_FLOOR_TEMPERATURE >= 127) {
             	flrtempstring = "N/A"
             }
             else {
             	flrtempstring = result.CURRENT_FLOOR_TEMPERATURE
             }
-        	cmds << sendEvent(name: "floortemp", value: flrtempstring)
+        	cmds << sendEvent(name: "floortemp", value: flrtempstring, displayed: false)
         }
         if (result.containsKey("DEMAND")) {
         	//Update the tiles to show that it is currently heating (if desired)
@@ -261,8 +265,8 @@ def processNeoResponse(result) {
         	if (result.HOLD_TIME == "0:00") {
             	//Here we have zero hold time so run until next on time
             	statusTextmsg = "Set to " + result.CURRENT_SET_TEMPERATURE + "C until "
-                if (result.NEXT_ON_TIME.reverse().take(3).reverse() == "255") {
-                	//If we see 255:255 in hh:mm field then it is set permanently
+                if (result.NEXT_ON_TIME.reverse().take(3).reverse() >= "127") {
+                	//If we see 255:255 (sometimes 127:127 due to Homekit) in hh:mm field then it is set permanently
                 	statusTextmsg = statusTextmsg + "changed"
                 }
                 else {
@@ -273,16 +277,16 @@ def processNeoResponse(result) {
             	cmds << sendEvent(name: "nextSetpointText", value: statusTextmsg)
                 //Lastly if we are here then there should be not holds in place and hence lets update the set button text
                 if (device.currentValue("holdtime") == "0:00") {
-                	cmds << sendEvent(name: "setTempHold", value: "settemp")
+                	cmds << sendEvent(name: "setTempHold", value: "setTemp", displayed: false)
                 }
-                else {    
-                	cmds << sendEvent(name: "setTempHold", value: "setHold")
+                else {
+                	cmds << sendEvent(name: "setTempHold", value: "setHold", displayed: false)
                 }
             }
             else {
             	//Here we do have a hold time so display temp and time
             	statusTextmsg = "Holding " + result.HOLD_TEMPERATURE + "°C for " + result.HOLD_TIME
-            	cmds << sendEvent(name: "nextSetpointText", value: statusTextmsg)
+            	cmds << sendEvent(name: "nextSetpointText", value: statusTextmsg, displayed: false)
             }
         }
         
@@ -304,68 +308,42 @@ def processNeoResponse(result) {
 
 def increaseDuration() {
 	def cmds = []
-    if (device.currentValue("holdtime")?.contains(':')) {
-        def hoursandmins = device.currentValue("holdtime").split(":")
-        //Now we calculate and update hours and minutes and send it to the holdtime tile
-        if (hoursandmins[1] == "00") {
-            hoursandmins[1] = "30"
+    def durationMins
+    durationMins = timeStringToMins(device.currentValue("holdtime"))
+    if (durationMins == 0) {
+        if (device.currentValue("setTempHold") != "cancelHold") {
+            cmds << sendEvent(name: "setTempHold", value: "setHold", displayed: false, isStateChange: true)
         }
-        else {
-        	hoursandmins[1] = "00"
-            hoursandmins[0] = (hoursandmins[0].toInteger() + 1).toString()
-        }
-        //Reset hours if 5 or more
-        if (hoursandmins[0].toInteger() >= 5) {
-             hoursandmins[0] = "0"
-             if (device.currentValue("setTempHold") != "cancelhold") {
-             	cmds << sendEvent(name: "setTempHold", value: "settemp")
-             }
-         }
-        else {
-        	if (device.currentValue("setTempHold") != "cancelhold") {
-            	cmds << sendEvent(name: "setTempHold", value: "setHold")
-            }
-        }
-        cmds << sendEvent(name: "holdtime", value: "${hoursandmins[0]}:${hoursandmins[1]}", displayed: true)
     }
-    else {
-    	//Here we should reset as it hasnt found
-		cmds << sendEvent(name: "holdtime", value: "0:00", displayed: true)
-        return cmds
+    if (durationMins == 300) {
+    	durationMins = 0
+        cmds << sendEvent(name: "setTempHold", value: "setTemp", displayed: false, isStateChange: true)
     }
+    else if (durationMins >= 0) {
+    	durationMins = durationMins + 30
+    }
+    cmds << sendEvent(name: "holdtime", value: "${minsToTimeString(durationMins)}", displayed: false, isStateChange: true)
     return cmds
 }
 
 def decreaseDuration() {
 	def cmds = []
-    if (device.currentValue("holdtime")?.contains(':')) {
-        def hoursandmins = device.currentValue("holdtime").split(":")
-        //Now we calculate and update hours and minutes and send it to the holdtime tile
-        if ((hoursandmins[0] == "0") && (hoursandmins[1] == "00")) {
-            hoursandmins[0] = "5"
-            if (device.currentValue("setTempHold") != "cancelhold") {
-            	cmds << sendEvent(name: "setTempHold", value: "setHold")
-            }
-        }
-        if (hoursandmins[1] == "30") {
-            hoursandmins[1] = "00"
-        }
-        else {
-        	hoursandmins[1] = "30"
-            hoursandmins[0] = (hoursandmins[0].toInteger() - 1).toString()
-        }
-        if ((hoursandmins[0] == "0") && (hoursandmins[1] == "00")) {
-        	if (device.currentValue("setTempHold") != "cancelhold") {
-            	cmds << sendEvent(name: "setTempHold", value: "settemp")
-        	}
-        }
-        cmds << sendEvent(name: "holdtime", value: "${hoursandmins[0]}:${hoursandmins[1]}", displayed: true)
+    def durationMins
+    durationMins = timeStringToMins(device.currentValue("holdtime"))
+    if (durationMins == 0) {
+    	durationMins = 300
+        cmds << sendEvent(name: "setTempHold", value: "setHold", displayed: false, isStateChange: true)
     }
-    else {
-    	//Here we should reset as it hasnt found
-		cmds << sendEvent(name: "holdtime", value: "0:00", displayed: true)
-        return cmds
+    else if (durationMins == 30) {
+    	durationMins = 0
+        if (device.currentValue("setTempHold") != "cancelHold") {
+            cmds << sendEvent(name: "setTempHold", value: "setTemp", displayed: false, isStateChange: true)
+        }
     }
+    else if (durationMins > 30) {
+    	durationMins = durationMins - 30
+    }
+    cmds << sendEvent(name: "holdtime", value: "${minsToTimeString(durationMins)}", displayed: false, isStateChange: true)
     return cmds
 }
 
@@ -394,14 +372,14 @@ def setTempHoldOn(chosentemp) {
 
     if (device.currentValue("holdtime") == "0:00") {
     	parent.childSetTemp(newtemp.toString(), device.deviceNetworkId)
-		cmds << sendEvent(name: "setTempHold", value: "tempwasset")
+		cmds << sendEvent(name: "setTempHold", value: "tempWasSet", displayed: false, isStateChange: true)
     }
     else {
      	def hours = device.currentValue("holdtime").take(1)
     	def minutes = device.currentValue("holdtime").reverse().take(2).reverse()
         log.debug hours + " hours, " + minutes + "mins"
 		parent.childHold(newtemp.toString(), hours, minutes, device.deviceNetworkId)
-    	cmds << sendEvent(name: "setTempHold", value: "cancelhold")
+    	cmds << sendEvent(name: "setTempHold", value: "cancelHold", displayed: false, isStateChange: true)
 	}
     return cmds
 }
@@ -413,10 +391,10 @@ def setTempHoldOff() {
 	parent.childCancelHold(device.deviceNetworkId)
     if (device.currentValue("holdtime") == "0:00") {
     	//We have 0:00 as hh:mm, so the next command will be a set_temp
-        cmds << sendEvent(name: "setTempHold", value: "settemp")
+        cmds << sendEvent(name: "setTempHold", value: "setTemp", displayed: false)
     }
     else {
-    	cmds << sendEvent(name: "setTempHold", value: "setHold")
+    	cmds << sendEvent(name: "setTempHold", value: "setHold", displayed: false)
     }
     return cmds
 }
@@ -443,10 +421,41 @@ def setHeatingSetpoint(number) {
 	parent.childSetTemp(number.toString(), device.deviceNetworkId)
 }
 
-//This command is probably not used, but justan audio way of setting thermostat to away (may not work because of Alexa)
+//This command is probably not used, but just another way of setting thermostat to away (may not work because of Alexa)
 def off() {
 	//In this case we'll just set the thermostat to be away
 	away()
+}
+
+private timeStringToMins(timeString){
+	if (timeString?.contains(':')) {
+    	def hoursandmins = timeString.split(":")
+        def mins = hoursandmins[0].toInteger() * 60 + hoursandmins[1].toInteger()
+        log.debug "${timeString} converted to ${mins}" 
+        return mins
+    }
+}
+
+private minsToTimeString(intMins) {
+	def timeString =  "${(intMins/60).toInteger()}:${(intMins%60).toString().padLeft(2, "0")}"
+    log.debug "${intMins} converted to ${timeString}"
+    return timeString
+}
+
+private timeStringToHoursMins(timeString){
+	if (timeString?.contains(':')) {
+    	def hoursMins = timeString.split(":")
+        log.debug "${timeString} converted to ${hoursMins[0]}:${hoursMins[1]}"
+        return hoursMins
+    }
+}
+
+private minsToHoursMins(intMins) {
+	def hoursMins = []
+    hoursMins << (intMins/60).toInteger()
+    hoursMins << (intMins%60).toInteger()
+    log.debug "${intMins} converted to ${hoursMins[0]}:${hoursMins[1]}" 
+    return hoursMins
 }
 
 //Dont use any of these yet as I havent worked out why they would be needed!
