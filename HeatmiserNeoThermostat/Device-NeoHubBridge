@@ -216,8 +216,6 @@ def childRequestingRefresh(String dni) {
     def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
     log.debug "Requesting refreshed info for this child"
 	getAction("/neorelay?device=hubzonerefresh&command={\"INFO\":\"${deviceid}\"}")
-    //Add it here to try and do it automatically in 10mins - still not working reliably so disabled
-    //runEvery10Minutes(childRequestingRefresh())
 }
 def childAwayOn(String dni) {
 	//Send Child Away on command
@@ -347,7 +345,11 @@ def parse(description) {
                     //Prepare DNI - Remove spaces and replace with a hyphen to prevent problems with HTML requests
                     thisthermostatdni = "neostat${item.key.replaceAll(" ", "-")}"
                     log.debug "Adding child Name: ${thisthermostatname}, DNI: ${thisthermostatdni}, ID: ${item.value} to ${device.hub.id}"
-                    addChildDevice("cjcharles0", "Neo Thermostat", thisthermostatdni, device.hub.id, [name: thisthermostatname]) //, , label: thisthermostatname, completedSetup: true //device.hub.id
+                    try {
+                    	addChildDevice("cjcharles0", "Neo Thermostat", thisthermostatdni, device.hub.id, [name: thisthermostatname]) //, label: thisthermostatname, completedSetup: true
+                    } catch (e) {
+                        log.error "Couldnt add device, probably already exists: ${e}"
+                    }
                 }
         	}
             //Finally send a refresh command to get the latest info for each thermostat
@@ -359,17 +361,25 @@ def parse(description) {
             for (deviceinfo in result.relayresult.devices) {
                 //If we have a devices key then it is an INFO command so process the events to update the DH
                 if (deviceinfo.DEVICE_TYPE < 10) {
-                	//Device type < 10 should exclude repeaters
-                    def curdevicename = deviceinfo.device.replaceAll(" ", "-")
-                    def curdevice = getChildDevices().find { it.deviceNetworkId == "neostat"+curdevicename}
-                    curdevice?.processNeoResponse(deviceinfo)
+                	try {
+                        //Device type < 10 should exclude repeaters
+                        def curdevicename = deviceinfo.device.replaceAll(" ", "-")
+                        def curdevice = getChildDevices().find { it.deviceNetworkId == "neostat"+curdevicename}
+                        curdevice?.processNeoResponse(deviceinfo)
+                    } catch (e) {
+                        log.error "Couldnt process response, probably this child doesnt exist: ${e}"
+                    }
                 }
             }
         }
         if (result.relaydevice.contains("neostat")) {
         	//We got a command/response for an individual thermostat so send data to thermostat
-            def resultdevice = getChildDevices().find { it.deviceNetworkId == result.relaydevice}
-            resultdevice?.processNeoResponse(result)
+            try {
+            	def resultdevice = getChildDevices().find { it.deviceNetworkId == result.relaydevice}
+            	resultdevice?.processNeoResponse(result)
+            } catch (e) {
+                log.error "Couldnt process response, probably this child doesnt exist: ${e}"
+            }
         }
     }
     return cmds
