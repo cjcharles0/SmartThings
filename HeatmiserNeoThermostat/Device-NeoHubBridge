@@ -31,6 +31,8 @@ metadata {
         command "setAllAwayOn"
         command "setAllAwayOff"
         
+        command "childGetDebugState"
+        
         command "childRequestingRefresh"
         command "childAwayOn"
         command "childAwayOff"
@@ -61,6 +63,7 @@ metadata {
         input("neohubip", "string", title:"NeoHub IP Address", description: "e.g. 192.168.1.11", required: true, displayDuringSetup: true)
         input("prestatname", "string", title:"Add before stat name", description: "e.g. 'Thermostat' would give 'Thermostat Kitchen'", required: false, displayDuringSetup: true)
         input("poststatname", "string", title:"Add after stat name", description: "e.g. 'Thermostat' would give 'Kitchen Thermostat'", required: false, displayDuringSetup: true)
+        input("enable_debug", "bool", title:"Enable debug mode printing?", description:"Adds a few extra debug lines", required:false, displayDuringSetup: true)
 	}
 
 	tiles (scale: 2){
@@ -125,7 +128,7 @@ def testcommand(){
             addChildDevice("cjcharles0", "Neo Thermostat", "neostatTemp", device.hub.id, [name: "neo temp device", label: name, completedSetup: true]) //"cjcharles0", //device.hub.id
         }
     } catch (e) {
-        log.error "Couldnt find device, probably doesn't exist so safe to add a new one: ${e}"
+        log.debug "Couldnt find device, probably doesn't exist so safe to add a new one: ${e}"
         addChildDevice("cjcharles0", "Neo Thermostat", "neostatTemp", device.hub.id, [name: "neo temp device", label: name, completedSetup: true]) //"cjcharles0", //device.hub.id
     }
 }
@@ -156,7 +159,7 @@ def refresh() {
 }
 def installed() {
 	log.debug "installed()"
-    refreshipaddresses()
+    updated()
 }
 def uninstalled() {
     log.debug "uninstalled()"
@@ -165,14 +168,21 @@ def uninstalled() {
 def updated() {
 	log.debug "updated()"
     refreshipaddresses()
+    if (enable_debug) {
+    	state.debug = true
+        log.debug "Debug print information enabled"
+    } else {
+    	state.debug = false
+        log.debug "Debug print information disabled"
+    }
 }
 def ping() {
-    log.debug "ping()"
-    refresh()
+    //log.debug "ping()"
+    //refresh()
 }
 def poll() {
-    log.debug "poll()"
-	refresh()
+    //log.debug "poll()"
+	//refresh()
 }
 
 //These commands will either add or remove the child thermostats, surprisingly....
@@ -191,7 +201,7 @@ private removethermostats(){
             deleteChildDevice(it.deviceNetworkId)
         }
     } catch (e) {
-        log.error "Error deleting devices, either none exist or already locked into SmartApps: ${e}"
+        log.debug "Error deleting devices, either none exist or already locked into SmartApps: ${e}"
     }
 }
 
@@ -209,12 +219,17 @@ def setAllAwayOff(){
     getAction("/neorelay?device=hubcommand&command={\"AWAY_OFF\":0}")
 }
 
+//This function helps control debug printing
+def childGetDebugState() {
+	if (state.debug == true) return true
+    else return false
+}
 
 //These functions can be called by the children in order to request something from the bridge
 def childRequestingRefresh(String dni) {
 	//Send Refresh command - this will occur for all thermostats, not just the one which requested it
     def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
-    log.debug "Requesting refreshed info for this child"
+    if (state.debug) log.debug "Requesting refreshed info for ${dni}"
 	getAction("/neorelay?device=hubzonerefresh&command={\"INFO\":\"${deviceid}\"}")
 }
 def childAwayOn(String dni) {
@@ -326,7 +341,7 @@ def parse(description) {
     def slurper = new JsonSlurper()
     def result = slurper.parseText(body)
     
-    log.debug result
+    if (state.debug) log.debug result
     cmds << sendEvent(name: "lastcommand", value: "${result}", isStateChange: true)
     
     if (result.containsKey("relaydevice")) {
@@ -348,7 +363,7 @@ def parse(description) {
                     try {
                     	addChildDevice("cjcharles0", "Neo Thermostat", thisthermostatdni, device.hub.id, [name: thisthermostatname]) //, label: thisthermostatname, completedSetup: true
                     } catch (e) {
-                        log.error "Couldnt add device, probably already exists: ${e}"
+                        log.debug "Couldnt add device, probably already exists: ${e}"
                     }
                 }
         	}
@@ -357,17 +372,18 @@ def parse(description) {
         }
 		if (result.relaydevice == "hubzonerefresh") {
         	//Device is a fake device for refreshing all zone info, so process responses out to each thermostat device
-            log.debug "Received a refresh command from NeoHub"
+            if (state.debug) log.debug "Received a refresh command from NeoHub"
             for (deviceinfo in result.relayresult.devices) {
                 //If we have a devices key then it is an INFO command so process the events to update the DH
                 if (deviceinfo.DEVICE_TYPE < 10) {
                 	try {
                         //Device type < 10 should exclude repeaters
+                        log.debug "Received a refresh command for ${deviceinfo.device}"
                         def curdevicename = deviceinfo.device.replaceAll(" ", "-")
                         def curdevice = getChildDevices().find { it.deviceNetworkId == "neostat"+curdevicename}
                         curdevice?.processNeoResponse(deviceinfo)
                     } catch (e) {
-                        log.error "Couldnt process response, probably this child doesnt exist: ${e}"
+                        log.debug "Couldnt process response, probably this child doesnt exist: ${e}"
                     }
                 }
             }
@@ -378,7 +394,7 @@ def parse(description) {
             	def resultdevice = getChildDevices().find { it.deviceNetworkId == result.relaydevice}
             	resultdevice?.processNeoResponse(result)
             } catch (e) {
-                log.error "Couldnt process response, probably this child doesnt exist: ${e}"
+                log.debug "Couldnt process response, probably this child doesnt exist: ${e}"
             }
         }
     }
