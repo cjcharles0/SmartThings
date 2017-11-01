@@ -185,6 +185,11 @@ def refresh() {
 	log.debug "Refreshing thermostat data from parent"
     //Get the parent to request a refresh but this should be the parent showing the actual refresh command
     parent.childRequestingRefresh(device.deviceNetworkId)
+    if (parent.childGetDebugState()) {
+    	state.debug = true
+    } else {
+    	state.debug = false
+    }
     runEvery5Minutes(refresh)
 }
 
@@ -244,7 +249,11 @@ def processNeoResponse(result) {
         	//Got a set temperature so update it if above 8 (otherwise Away will set this to 5° annoyingly)
         	def settempint = result.CURRENT_SET_TEMPERATURE.toBigDecimal().toInteger() + 0 //.toBigDecimal().toInteger()
             if (settempint >= 8) {
-            	cmds << sendEvent(name: "heatingSetpoint", value: settempint, displayed: false)
+            	//The if greater-or-equal to 8 check is only needed in case the current setpoint check is removed
+            	if (settempint > device.currentValue("heatingSetpoint").toInteger()) {
+                	//If the thermostat setpoint is higher than the ST setpoint then update it, otherwise dont bother
+                	cmds << sendEvent(name: "heatingSetpoint", value: settempint, displayed: false)
+                }
             }
         }
         if (result.containsKey("CURRENT_FLOOR_TEMPERATURE")) {
@@ -265,8 +274,8 @@ def processNeoResponse(result) {
         	if (result.HOLD_TIME == "0:00") {
             	//Here we have zero hold time so run until next on time
             	statusTextmsg = "Set to " + result.CURRENT_SET_TEMPERATURE + "C until "
-                if (result.NEXT_ON_TIME.reverse().take(3).reverse() >= "127") {
-                	//If we see 255:255 (sometimes 127:127 due to Homekit) in hh:mm field then it is set permanently
+                if (result.NEXT_ON_TIME.reverse().take(3).reverse() == "255") {
+                	//If we see 255:255 in hh:mm field then it is set permanently (hence just check the last three digits)
                 	statusTextmsg = statusTextmsg + "changed"
                 }
                 else {
@@ -431,21 +440,21 @@ private timeStringToMins(timeString){
 	if (timeString?.contains(':')) {
     	def hoursandmins = timeString.split(":")
         def mins = hoursandmins[0].toInteger() * 60 + hoursandmins[1].toInteger()
-        log.debug "${timeString} converted to ${mins}" 
+        if (state.debug) log.debug "${timeString} converted to ${mins}" 
         return mins
     }
 }
 
 private minsToTimeString(intMins) {
 	def timeString =  "${(intMins/60).toInteger()}:${(intMins%60).toString().padLeft(2, "0")}"
-    log.debug "${intMins} converted to ${timeString}"
+    if (state.debug) log.debug "${intMins} converted to ${timeString}"
     return timeString
 }
 
 private timeStringToHoursMins(timeString){
 	if (timeString?.contains(':')) {
     	def hoursMins = timeString.split(":")
-        log.debug "${timeString} converted to ${hoursMins[0]}:${hoursMins[1]}"
+        if (state.debug) log.debug "${timeString} converted to ${hoursMins[0]}:${hoursMins[1]}"
         return hoursMins
     }
 }
@@ -454,7 +463,7 @@ private minsToHoursMins(intMins) {
 	def hoursMins = []
     hoursMins << (intMins/60).toInteger()
     hoursMins << (intMins%60).toInteger()
-    log.debug "${intMins} converted to ${hoursMins[0]}:${hoursMins[1]}" 
+    if (state.debug) log.debug "${intMins} converted to ${hoursMins[0]}:${hoursMins[1]}" 
     return hoursMins
 }
 
