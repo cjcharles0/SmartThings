@@ -233,12 +233,14 @@ def childRequestingRefresh(String dni) {
 	getAction("/neorelay?device=hubzonerefresh&command={\"INFO\":\"${deviceid}\"}")
 }
 def childAwayOn(String dni) {
+	//Do not use, use FrontOn instead
 	//Send Child Away on command
     def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
     log.debug "Requesting away mode on for child ${deviceid}"
 	getAction("/neorelay?device=${dni}&command={\"AWAY_ON\":\"${deviceid}\"}")
 }
 def childAwayOff(String dni) {
+	//Do not use, use FrontOff instead
 	//Send Child Away off command
     def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
     log.debug "Requesting away mode off for child ${deviceid}"
