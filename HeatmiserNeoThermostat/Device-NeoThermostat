@@ -148,7 +148,7 @@ metadata {
     		state "floortemp", label:'Floor Temp\r\n${currentValue}'
 		}
         standardTile("away", "away", inactiveLabel: false, decoration: "flat", width: 2, height: 1) {
-			state "off", action:"away", label:'Set Away' // icon TBC
+			state "off", action:"away", label:'Set Away / Standby' // icon TBC
 			state "on", action:"awayOff", label:'Away Activated\r\nPress to cancel' // icon TBC
 		}
 		standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
@@ -299,9 +299,9 @@ def processNeoResponse(result) {
             }
         }
         
-        if (result.containsKey("AWAY")) {
-        	//Update away status as this is the most important parameter for Neostats
-            if (result.AWAY == false) {
+        if (result.containsKey("STANDBY")) {
+        	//Update standby/away status as this is the most important parameter for Neostats
+            if (result.STANDBY == false) {
                 cmds << sendEvent(name: "away", value: "off")
             }
             else {
@@ -360,7 +360,7 @@ def away() {
 	//Set away mode on
 	def cmds = []
 	if (state.debug) log.debug "${device.label}: away()"
-	parent.childAwayOn(device.deviceNetworkId)
+	parent.childFrostOn(device.deviceNetworkId)
     cmds << sendEvent(name: "away", value: "on", displayed: true)
     return cmds
 }
@@ -368,7 +368,7 @@ def awayOff() {
 	//Set away mode off
 	def cmds = []
 	if (state.debug) log.debug "${device.label}: awayOff()"
-	parent.childAwayOff(device.deviceNetworkId)
+	parent.childFrostOff(device.deviceNetworkId)
     cmds << sendEvent(name: "away", value: "off", displayed: true)
     return cmds
 }
