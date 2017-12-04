@@ -34,7 +34,7 @@ metadata {
     attribute "contact1","enum",["open1","close1"]
     attribute "contact2","enum",["open2","close2"]
 	
-	fingerprint deviceId: "0x2001", inClusters: "0x30 0x60 0x85 0x8E 0x72 0x70 0x86 0x7A 0xEF"
+	fingerprint type: "2001", cc: "30 60 85 8E 72 70 86 7A", ccOut: "2B"
 }
 
 simulator {
@@ -100,10 +100,10 @@ details(["contact1","contact2",
         "configure", "report", "createchildren", "createtempchildren", "removechildren"])
 
 preferences {
-        def paragraph = "Device Handler by @cjcharles \nParameter Settings:\n\n"
-		
+        input name: "Info", type: "paragraph", title:"Device Handler by @cjcharles", description: "Parameter Settings:", displayDuringSetup: false
+
         input name: "param1", type: "number", range: "0..65535", required: true, //defaultValue: "0",
-            title: paragraph + "Parameter No. 1 - Input 1 Alarm Cancellation Delay. \n" +
+            title: "Parameter No. 1 - Input 1 Alarm Cancellation Delay. \n" +
                    "Additional delay after an alarm from input 1 has ceased.\n" +
                    "Time in seconds to delay the ceasing event.\n" +
                    "Default value: 0."
@@ -245,31 +245,25 @@ def configure() {
     updateCurrentParams()
 }
 
-private void createChildDevices(){
-	log.debug "Adding Child Devices if not already added - first creating Contact1 child"
-    try {
-       	def currentchild = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-contact1"}
-        if (currentchild == null) {
-			addChildDevice("smartthings/testing", "Simulated Contact Sensor", "${device.deviceNetworkId}-contact1", device.hub.id, //cjcharles0 Visonic Contact Zone
-				[completedSetup: true, name: "${device.displayName} (Contact1)", label: "${device.displayName} (Contact1)", isComponent: false])
+def createChildDevices(){
+	log.debug "Adding Child Devices if not already added"
+    for (i in 1..2) {
+    	try {
+        	log.debug "Trying to create child switch if it doesn't already exist ${i}"
+            def currentchild = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-ep${i}"}
+            if (currentchild == null) {
+            	log.debug "Creating child for ep${i}"
+				addChildDevice("smartthings/testing", "Simulated Contact Sensor", "${device.deviceNetworkId}-ep${i}", device.hub.id,
+                	[completedSetup: true, name: "${device.displayName} (Contact${i})", label: "${device.displayName} (Contact${i})", isComponent: false])
+            }
+        } catch (e) {
+            log.debug "Error adding child ${i}: ${e}"
         }
-    } catch (e) {
-		log.debug "Error adding Contact1 child: ${e}"
-    }
-    log.debug "Now creating Contact2 child if not already added"
-    try {
-    	def currentchild = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-contact2"}
-        if (currentchild == null) {
-        	addChildDevice("smartthings/testing", "Simulated Contact Sensor", "${device.deviceNetworkId}-contact2", device.hub.id, //cjcharles0 - Visonic Contact Zone
-				[completedSetup: true, name: "${device.displayName} (Contact2)", label: "${device.displayName} (Contact2)", isComponent: false])
-        }
-    } catch (e) {
-		log.debug "Error adding Contact2 child: ${e}"
     }
 }
-private void createChildTempDevices() {
+def createChildTempDevices() {
     log.debug "Creating Temperature children"
-    for (def i = 1; i <= 4; i++) {
+    for (i in 1..4) {
     	try {
         	//If we have a temperature reading from this sensor (1 to 4) then try to create a child for it
         	if (device.currentValue("temperature${i}") != null) {
@@ -348,8 +342,10 @@ def zwaveEvent(physicalgraph.zwave.commands.basicv1.BasicSet cmd) {
 	}
     createEvent(name: "contact1", value: currentstate, descriptionText: "${device.displayName} is ${currentstate}")
     try {
-        def childDevice = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-contact1"}
+        def childDevice = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-ep1"}
         if (childDevice)
+        	def motionstate = (currentstate=="closed") ? "active" : "inactive"
+        	childDevice.sendEvent(name: "motion", value: motionstate)
             childDevice.sendEvent(name: "contact", value: currentstate)
     } catch (e) {
         log.error "Couldn't find child device, probably doesn't exist...? Error: ${e}"
@@ -360,7 +356,6 @@ def zwaveEvent(physicalgraph.zwave.commands.multichannelv3.MultiChannelCmdEncap 
 	log.debug "ZWaveEvent V3 ${cmd.inspect()}"
 	def result
 	if (cmd.commandClass == 32) {
-    	def currentcontact = "contact" + cmd.sourceEndPoint
         def currentstate
 		if (cmd.parameter == [0]) {
         	currentstate = "closed"
@@ -368,14 +363,16 @@ def zwaveEvent(physicalgraph.zwave.commands.multichannelv3.MultiChannelCmdEncap 
 		if (cmd.parameter == [255]) {
         	currentstate = "open"
 		}
-        log.debug "${currentcontact} is ${currentstate}"
+        log.debug "ep${cmd.sourceEndPoint} is ${currentstate}"
         //First update tile on this device
-        sendEvent(name: currentcontact, value: currentstate, descriptionText: "$device.displayName - ${currentcontact} is ${currentstate}")
+        sendEvent(name: "contact${cmd.sourceEndPoint}", value: currentstate, descriptionText: "$device.displayName - ep${cmd.sourceEndPoint} is ${currentstate}")
         if (currentcontact != null) {
-			//If not null then we have found either contact1 or contact2, hence try to send to the child device aswell
+			//If not null then we have found either ep1 or ep2, hence try to send to the child device aswell
             try {
-                def childDevice = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-${currentcontact}"}
+                def childDevice = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-ep${cmd.sourceEndPoint}"}
                 if (childDevice)
+                    def motionstate = (currentstate=="closed") ? "active" : "inactive"
+                    childDevice.sendEvent(name: "motion", value: motionstate)
                     childDevice.sendEvent(name: "contact", value: currentstate)
             } catch (e) {
                 log.error "Couldn't find child device, probably doesn't exist...? Error: ${e}"
@@ -501,8 +498,10 @@ def listCurrentParams() {
 def open1() {
     sendEvent(name: "contact1", value: "open", descriptionText: "$device.displayName (1) is opened manually")
     try {
-        def childDevice = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-contact1"}
+        def childDevice = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-ep1"}
+        log.debug "Changing child ${childDevice} to open/inactive"
         if (childDevice)
+        	childDevice.sendEvent(name: "motion", value: "inactive")
             childDevice.sendEvent(name: "contact", value: "open")
     } catch (e) {
         log.error "Couldn't find child device, probably doesn't exist...? Error: ${e}"
@@ -512,8 +511,10 @@ def open1() {
 def close1() {
     sendEvent(name: "contact1", value: "closed", descriptionText: "$device.displayName (1) is closed manually")
     try {
-        def childDevice = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-contact1"}
+        def childDevice = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-ep1"}
+        log.debug "Changing child ${childDevice} to closed/active"
         if (childDevice)
+        	childDevice.sendEvent(name: "motion", value: "active")
             childDevice.sendEvent(name: "contact", value: "closed")
     } catch (e) {
         log.error "Couldn't find child device, probably doesn't exist...? Error: ${e}"
@@ -523,8 +524,10 @@ def close1() {
 def open2() {
     sendEvent(name: "contact2", value: "open", descriptionText: "$device.displayName (2) is opened manually")
     try {
-        def childDevice = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-contact2"}
+        def childDevice = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-ep2"}
+        log.debug "Changing child ${childDevice} to open/inactive"
         if (childDevice)
+        	childDevice.sendEvent(name: "motion", value: "inactive")
             childDevice.sendEvent(name: "contact", value: "open")
     } catch (e) {
         log.error "Couldn't find child device, probably doesn't exist...? Error: ${e}"
@@ -534,8 +537,10 @@ def open2() {
 def close2() {
     sendEvent(name: "contact2", value: "closed", descriptionText: "$device.displayName (2) is closed manually")
     try {
-    def childDevice = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-contact2"}
+        def childDevice = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-ep2"}
+        log.debug "Changing child ${childDevice} to closed/active"
         if (childDevice)
+        	childDevice.sendEvent(name: "motion", value: "active")
 			childDevice.sendEvent(name: "contact", value: "closed")
     } catch (e) {
         log.error "Couldn't find child device, probably doesn't exist...? Error: ${e}"
