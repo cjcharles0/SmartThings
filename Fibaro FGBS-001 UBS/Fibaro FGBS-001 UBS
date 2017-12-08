@@ -254,7 +254,10 @@ def createChildDevices(){
             if (currentchild == null) {
             	log.debug "Creating child for ep${i}"
 				addChildDevice("smartthings/testing", "Simulated Contact Sensor", "${device.deviceNetworkId}-ep${i}", device.hub.id,
-                	[completedSetup: true, name: "${device.displayName} (Contact${i})", label: "${device.displayName} (Contact${i})", isComponent: false])
+                	[completedSetup: true, name: "${device.displayName} (Contact${i})", isComponent: false]) //, label: "${device.displayName} (Contact${i})"
+                /*addChildDevice(deviceHandlerName, "${device.deviceNetworkId}-${deviceName}${deviceNumber}", null,
+         			[completedSetup: true, label: "${device.displayName} (${deviceName}${deviceNumber})", 
+                	isComponent: false, componentName: "${deviceName}${deviceNumber}", componentLabel: "${deviceName} ${deviceNumber}"])*/
             }
         } catch (e) {
             log.debug "Error adding child ${i}: ${e}"
@@ -271,7 +274,7 @@ def createChildTempDevices() {
                 def currentchild = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-temperature${i}"}
                 if (currentchild == null) {
                     addChildDevice("smartthings/testing", "Simulated Temperature Sensor", "${device.deviceNetworkId}-temperature${i}", device.hub.id,
-                        [completedSetup: true, name: "${device.displayName} (Temp${i})", label: "${device.displayName} (Temp${i})", isComponent: false])
+                        [completedSetup: true, name: "${device.displayName} (Temp${i})", isComponent: false]) //, label: "${device.displayName} (Temp${i})"
                 }
             }
             else {
@@ -366,18 +369,16 @@ def zwaveEvent(physicalgraph.zwave.commands.multichannelv3.MultiChannelCmdEncap 
         log.debug "ep${cmd.sourceEndPoint} is ${currentstate}"
         //First update tile on this device
         sendEvent(name: "contact${cmd.sourceEndPoint}", value: currentstate, descriptionText: "$device.displayName - ep${cmd.sourceEndPoint} is ${currentstate}")
-        if (currentcontact != null) {
-			//If not null then we have found either ep1 or ep2, hence try to send to the child device aswell
-            try {
-                def childDevice = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-ep${cmd.sourceEndPoint}"}
-                if (childDevice)
-                    def motionstate = (currentstate=="closed") ? "active" : "inactive"
-                    childDevice.sendEvent(name: "motion", value: motionstate)
-                    childDevice.sendEvent(name: "contact", value: currentstate)
-            } catch (e) {
-                log.error "Couldn't find child device, probably doesn't exist...? Error: ${e}"
-            }
-    	}
+		//If not null then we have found either ep1 or ep2, hence try to send to the child device aswell
+        try {
+            def childDevice = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-ep${cmd.sourceEndPoint}"}
+            if (childDevice)
+                def motionstate = (currentstate=="closed") ? "active" : "inactive"
+                childDevice.sendEvent(name: "motion", value: motionstate)
+                childDevice.sendEvent(name: "contact", value: currentstate)
+        } catch (e) {
+            log.error "Couldn't find child device, probably doesn't exist...? Error: ${e}"
+        }
     }
 	else if (cmd.commandClass == 49) {
 		if ((cmd.sourceEndPoint >= 3) && (cmd.sourceEndPoint <= 6)) {
