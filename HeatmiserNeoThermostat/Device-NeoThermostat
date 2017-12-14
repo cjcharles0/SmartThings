@@ -423,7 +423,6 @@ def lowerSetpoint() {
 def chooseSetTempOrSetHold(mins = null) {
 	def cmds = []
 	if (mins == null) { mins = timeStringToMins(device.currentValue("holdtime")) }
-	log.debug mins
 	if (mins == 0) {
     	//We have 0:00 as hh:mm, so somebody would only be able to set temp
         cmds << sendEvent(name: "setTempHold", value: "setTemp", displayed: false)
