@@ -36,6 +36,8 @@ metadata {
         
         command "setHeatingSetpoint" //Required by ST for thermostat type
         command "setCoolingSetpoint" //Required by ST for thermostat type
+        command "setThermostatSetpoint" //Required by ST for thermostat type
+        command "setTemperature" //Required by ST for thermostat type
         command "off" //Required by ST for thermostat type
         command "heat" //Required by ST for thermostat type
         command "emergencyHeat" //Required by ST for thermostat type
@@ -57,13 +59,14 @@ metadata {
         command "away" // Custom
 		command "awayOff" // Custom
 
-		attribute "temperature","number" // Temperature Measurement
-		attribute "heatingSetpoint","number" // Thermostat setpoint
-		attribute "thermostatSetpoint","number" // Thermostat setpoint
         attribute "holdtime","string" // Custom for how long to hold for
 		attribute "nextSetpointText", "string" // Custom for text display
 		attribute "statusText", "string" // Custom for neohub response
         
+  		attribute "temperature","number" // Temperature Measurement
+		attribute "thermostatSetpoint","number" // Thermostat setpoint      
+        attribute "coolingSetpoint","number" // Thermostat setpoint
+		attribute "heatingSetpoint","number" // Thermostat setpoint
         
 	}
     
@@ -77,7 +80,7 @@ metadata {
 	tiles(scale: 2) {
 
 		// Main multi information tile
-		multiAttributeTile(name:"temperature", type:"thermostat", width:6, height:3) {
+		multiAttributeTile(name:"temperatureDisplay", type:"thermostat", width:6, height:3) {
 			tileAttribute("device.temperature", key: "PRIMARY_CONTROL") {
 				attributeState("default", label:'${currentValue}°', unit:"C",
 					backgroundColors:[
@@ -92,23 +95,26 @@ metadata {
 					])
 			}
 			// Operating State - used to get background colour when type is 'thermostat'.
-            /*tileAttribute("device.thermostatOperatingState", key: "OPERATING_STATE") {
+            tileAttribute("device.thermostatOperatingState", key: "OPERATING_STATE") {
                 attributeState("heating", backgroundColor:"#e86d13")
                 attributeState("idle", backgroundColor:"#00A0DC")
                 attributeState("cooling", backgroundColor:"#00A0DC")
-            }*/
+            }
             tileAttribute("device.thermostatMode", key: "THERMOSTAT_MODE") {
                 attributeState("auto", label:' ')
-                //attributeState("heat", label:' ')
-                //attributeState("off", label:' ')
-                //attributeState("cool", label:' ')
+                attributeState("heat", label:' ')
+                attributeState("off", label:' ')
+                attributeState("cool", label:' ')
             }
-			tileAttribute("device.heatingSetpoint", key: "HEATING_SETPOINT") {
-				attributeState("heatingSetpoint", label:'', backgroundColor:"#ffffff", defaultState: true)
-			}
+            tileAttribute("device.heatingSetpoint", key: "HEATING_SETPOINT") {
+                attributeState("heatingSetpoint", label:'${currentValue}', unit:"dF", defaultState: true)
+            }
+            tileAttribute("device.coolingSetpoint", key: "COOLING_SETPOINT") {
+                attributeState("coolingSetpoint", label:'${currentValue}', unit:"dF", defaultState: true)
+            }
 		}
        
-		valueTile("heatingSetpoint", "device.heatingSetpoint", width: 1, height: 1, decoration: "flat") {
+		valueTile("manualSetpoint", "device.manualSetpoint", width: 1, height: 1, decoration: "flat") {
 			state "default", label:'${currentValue}°C', backgroundColor:"#ffffff"
 		}
 		standardTile("raisethermostatSetpoint", "device.raisethermostatSetpoint", width: 1, height: 1, decoration: "flat") {
@@ -164,11 +170,11 @@ metadata {
  			state "off", action:"on", label:'Turn On', icon:"st.thermostat.heating-cooling-off"
 		}
 		
-		main "temperature"
+		main "temperatureDisplay"
 		details(
 				[
-				"temperature",
-				"lowerthermostatSetpoint", "heatingSetpoint", "raisethermostatSetpoint",
+				"temperatureDisplay",
+				"lowerthermostatSetpoint", "manualSetpoint", "raisethermostatSetpoint",
                 "decreaseTime", "holdtime", "increaseTime", 
 				"nextSetpointText", "statusText", "setTempHold",
 				"floortemp", "away", "refresh", "alexaState"])
@@ -176,8 +182,7 @@ metadata {
 }
 
 def ensureAlexaCapableMode() {
-	sendEvent(name: "thermostatMode", value: "auto")
-    //sendEvent(name: "thermostatOperatingState", value: "idle")
+	sendEvent(name: "thermostatMode", value: "heat")
 }
 
 
@@ -246,14 +251,18 @@ def processNeoResponse(result) {
             cmds << sendEvent(name: "temperature", value: result.CURRENT_TEMPERATURE)
         }
         if (result.containsKey("CURRENT_SET_TEMPERATURE")) {
-        	//Got a set temperature so update it if above 8 (otherwise Away will set this to 5° annoyingly)
+        	//Got a set temperature so update it if above 6 (legacy from old firmware but keeping it for now)
         	def settempint = result.CURRENT_SET_TEMPERATURE.toBigDecimal().toInteger() + 0 //.toBigDecimal().toInteger()
-            if (settempint >= 8) {
+            if (settempint >= 6) {
+                cmds << sendEvent(name: "thermostatSetpoint", value: settempint, displayed: false)
+                cmds << sendEvent(name: "heatingSetpoint", value: settempint, displayed: false)
+                cmds << sendEvent(name: "coolingSetpoint", value: settempint, displayed: false)
             	//The if greater-or-equal to 8 check is only needed in case the current setpoint check is removed
-            	if (settempint > device.currentValue("heatingSetpoint").toInteger()) {
+            	//if (settempint > device.currentValue("thermostatSetpoint").toInteger()) {
                 	//If the thermostat setpoint is higher than the ST setpoint then update it, otherwise dont bother
-                	cmds << sendEvent(name: "heatingSetpoint", value: settempint, displayed: false)
-                }
+            }
+            if (device.currentValue("manualSetpoint") == null) {
+            	cmds << sendEvent(name: "manualSetpoint", value: settempint, displayed: false)
             }
         }
         if (result.containsKey("CURRENT_FLOOR_TEMPERATURE")) {
@@ -267,8 +276,14 @@ def processNeoResponse(result) {
             }
         	cmds << sendEvent(name: "floortemp", value: flrtempstring, displayed: false)
         }
-        if (result.containsKey("DEMAND")) {
-        	//Update the tiles to show that it is currently heating (if desired)
+        if (result.containsKey("HEATING")) {
+        	log.debug "Thermostat is currently calling for heat? ${result.HEATING}"
+            //Update the tiles to show that it is currently heating (if desired)
+        	if (result.HEATING == true) {
+        		cmds << sendEvent(name: "thermostatOperatingState", value: "heating")
+            } else {
+            	cmds << sendEvent(name: "thermostatOperatingState", value: "idle")
+            }
         }
         if (result.containsKey("HOLD_TIME")) {
         	if (result.HOLD_TIME == "0:00") {
@@ -285,12 +300,7 @@ def processNeoResponse(result) {
                 //Now send the update
             	cmds << sendEvent(name: "nextSetpointText", value: statusTextmsg)
                 //Lastly if we are here then there should be not holds in place and hence lets update the set button text
-                if (device.currentValue("holdtime") == "0:00") {
-                	cmds << sendEvent(name: "setTempHold", value: "setTemp", displayed: false)
-                }
-                else {
-                	cmds << sendEvent(name: "setTempHold", value: "setHold", displayed: false)
-                }
+				chooseSetTempOrSetHold()
             }
             else {
             	//Here we do have a hold time so display temp and time
@@ -319,18 +329,13 @@ def increaseDuration() {
 	def cmds = []
     def durationMins
     durationMins = timeStringToMins(device.currentValue("holdtime"))
-    if (durationMins == 0) {
-        if (device.currentValue("setTempHold") != "cancelHold") {
-            cmds << sendEvent(name: "setTempHold", value: "setHold", displayed: false, isStateChange: true)
-        }
-    }
     if (durationMins == 300) {
     	durationMins = 0
-        cmds << sendEvent(name: "setTempHold", value: "setTemp", displayed: false, isStateChange: true)
     }
-    else if (durationMins >= 0) {
+    else {
     	durationMins = durationMins + 30
     }
+    chooseSetTempOrSetHold(durationMins)
     cmds << sendEvent(name: "holdtime", value: "${minsToTimeString(durationMins)}", displayed: false, isStateChange: true)
     return cmds
 }
@@ -341,17 +346,11 @@ def decreaseDuration() {
     durationMins = timeStringToMins(device.currentValue("holdtime"))
     if (durationMins == 0) {
     	durationMins = 300
-        cmds << sendEvent(name: "setTempHold", value: "setHold", displayed: false, isStateChange: true)
     }
-    else if (durationMins == 30) {
-    	durationMins = 0
-        if (device.currentValue("setTempHold") != "cancelHold") {
-            cmds << sendEvent(name: "setTempHold", value: "setTemp", displayed: false, isStateChange: true)
-        }
-    }
-    else if (durationMins > 30) {
+    else {
     	durationMins = durationMins - 30
     }
+    chooseSetTempOrSetHold(durationMins)
     cmds << sendEvent(name: "holdtime", value: "${minsToTimeString(durationMins)}", displayed: false, isStateChange: true)
     return cmds
 }
@@ -373,9 +372,9 @@ def awayOff() {
     return cmds
 }
 
-def setTempHoldOn(chosentemp) {
+def setTempHoldOn() {
 	def cmds = []
-    def newtemp = device.currentValue("heatingSetpoint")
+    def newtemp = device.currentValue("manualSetpoint")
     
     if (state.debug) log.debug "${device.label}: set temp hold to ${newtemp} for ${device.currentValue("holdtime")} - setTempOn()"
 
@@ -386,7 +385,7 @@ def setTempHoldOn(chosentemp) {
     else {
      	def hours = device.currentValue("holdtime").take(1)
     	def minutes = device.currentValue("holdtime").reverse().take(2).reverse()
-        log.debug hours + " hours, " + minutes + "mins"
+        log.debug hours + "hours, " + minutes + "mins of hold time"
 		parent.childHold(newtemp.toString(), hours, minutes, device.deviceNetworkId)
     	cmds << sendEvent(name: "setTempHold", value: "cancelHold", displayed: false, isStateChange: true)
 	}
@@ -398,13 +397,7 @@ def setTempHoldOff() {
 	def cmds = []
 	if (state.debug) log.debug "${device.label}: cancel hold/temp - setTempHoldOff()"
 	parent.childCancelHold(device.deviceNetworkId)
-    if (device.currentValue("holdtime") == "0:00") {
-    	//We have 0:00 as hh:mm, so the next command will be a set_temp
-        cmds << sendEvent(name: "setTempHold", value: "setTemp", displayed: false)
-    }
-    else {
-    	cmds << sendEvent(name: "setTempHold", value: "setHold", displayed: false)
-    }
+	chooseSetTempOrSetHold()
     return cmds
 }
 
@@ -412,25 +405,61 @@ def setTempHoldOff() {
 def raiseSetpoint() {
 	//Called by tile to increase set temp box
 	def cmds = []
-	def newtemp = device.currentValue("heatingSetpoint").toInteger() + 1
-    cmds << sendEvent(name: "heatingSetpoint", value: newtemp)
+	def newtemp = device.currentValue("manualSetpoint").toInteger() + 1
+    cmds << sendEvent(name: "manualSetpoint", value: newtemp)
+	chooseSetTempOrSetHold()
     return cmds
 }
 
 def lowerSetpoint() {
     //called by tile to decrease set temp box
 	def cmds = []
-	def newtemp = device.currentValue("heatingSetpoint").toInteger() - 1
-    cmds << sendEvent(name: "heatingSetpoint", value: newtemp)
+	def newtemp = device.currentValue("manualSetpoint").toInteger() - 1
+    cmds << sendEvent(name: "manualSetpoint", value: newtemp)
+	chooseSetTempOrSetHold()
     return cmds
 }
 
-//This is the command used by Amazon Alexa
-def setHeatingSetpoint(number) {
-	parent.childSetTemp(number.toString(), device.deviceNetworkId)
+def chooseSetTempOrSetHold(mins = null) {
+	def cmds = []
+	if (mins == null) { mins = timeStringToMins(device.currentValue("holdtime")) }
+	log.debug mins
+	if (mins == 0) {
+    	//We have 0:00 as hh:mm, so somebody would only be able to set temp
+        cmds << sendEvent(name: "setTempHold", value: "setTemp", displayed: false)
+    }
+    else {
+    	//Otherwise they can set a hold
+    	cmds << sendEvent(name: "setTempHold", value: "setHold", displayed: false)
+    }
+    return cmds
 }
 
-//This command is probably not used, but just another way of setting thermostat to away (may not work because of Alexa)
+//These commands are used by Amazon Alexa
+def setHeatingSetpoint(number) {
+	def cmds = []
+	cmds << sendEvent(name: "thermostatSetpoint", value: number, displayed: false)
+	cmds << sendEvent(name: "heatingSetpoint", value: number, displayed: false)
+	cmds << sendEvent(name: "coolingSetpoint", value: number, displayed: false)
+	parent.childSetTemp(number.toString(), device.deviceNetworkId)
+    return cmds
+}
+def setThermostatSetpoint(number) {
+	def cmds = []
+	cmds << sendEvent(name: "thermostatSetpoint", value: number, displayed: false)
+	cmds << sendEvent(name: "heatingSetpoint", value: number, displayed: false)
+	cmds << sendEvent(name: "coolingSetpoint", value: number, displayed: false)
+	parent.childSetTemp(number.toString(), device.deviceNetworkId)
+    return cmds
+}
+def setTemperature(number) {
+	def cmds = []
+	cmds << sendEvent(name: "thermostatSetpoint", value: number, displayed: false)
+	cmds << sendEvent(name: "heatingSetpoint", value: number, displayed: false)
+	cmds << sendEvent(name: "coolingSetpoint", value: number, displayed: false)
+	parent.childSetTemp(number.toString(), device.deviceNetworkId)
+    return cmds
+}
 def off() {
 	//In this case we'll just set the thermostat to be away
 	away()
