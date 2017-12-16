@@ -23,7 +23,6 @@ metadata {
 		capability "Refresh"
         capability "Configuration"
         capability "Polling"
-        capability "Thermostat"
 
 		command "refreshipaddresses"
         command "getthermostats"
@@ -73,13 +72,13 @@ metadata {
 		}
         
         valueTile("stip", "stip", decoration: "flat", width: 2, height: 1) {
-    		state "stip", label:'ST IP Addr.\r\n${currentValue}'
+    		state "stip", label:'ST IP Addr:\r\n${currentValue}'
 		}
         valueTile("neoip", "neoip", decoration: "flat", width: 2, height: 1) {
-    		state "neoip", label:'Neohub IP Addr.\r\n${currentValue}'
+    		state "neoip", label:'Neohub IP Addr:\r\n${currentValue}'
 		}
         valueTile("brip", "brip", decoration: "flat", width: 2, height: 1) {
-    		state "brip", label:'ESP Bridge IP Addr.\r\n${currentValue}'
+    		state "brip", label:'ESP Bridge IP Addr:\r\n${currentValue}'
 		}
         
         standardTile("refreships", "device.refreships", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
@@ -145,9 +144,9 @@ def refreshipaddresses() {
 	def cmds = []
     log.debug "refreships()"
     //SendEvents should be before any getAction, otherwise getAction does nothing
-    cmds << sendEvent(name: "stip", value: device.hub.getDataValue("localIP")+"    Port:"+device.hub.getDataValue("localSrvPortTCP"), displayed: false)
-    cmds << sendEvent(name: "neoip", value: neohubip + "    Port:4242", displayed: false)
-    cmds << sendEvent(name: "brip", value: bridgeip + "    Port:80", displayed: false)
+    cmds << sendEvent(name: "stip", value: device.hub.getDataValue("localIP")+"\r\nPort: "+device.hub.getDataValue("localSrvPortTCP"), displayed: false)
+    cmds << sendEvent(name: "neoip", value: neohubip + "\r\nPort: 4242", displayed: false)
+    cmds << sendEvent(name: "brip", value: bridgeip + "\r\nPort: 80", displayed: false)
     return cmds
 }
 def refresh() {
@@ -198,10 +197,14 @@ private removethermostats(){
 	log.debug "Removing Child Thermostats"
     try {
         getChildDevices()?.each {
-            deleteChildDevice(it.deviceNetworkId)
+        	try {
+            	deleteChildDevice(it.deviceNetworkId)
+            } catch (e) {
+                log.debug "Error deleting ${it.deviceNetworkId}, probably locked into a SmartApp: ${e}"
+            }
         }
-    } catch (e) {
-        log.debug "Error deleting devices, either none exist or already locked into SmartApps: ${e}"
+    } catch (err) {
+        log.debug "Either no children exist or error finding child devices for some reason: ${err}"
     }
 }
 
