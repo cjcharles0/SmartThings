@@ -389,6 +389,11 @@ def setTempHoldOn() {
 		parent.childHold(newtemp.toString(), hours, minutes, device.deviceNetworkId)
     	cmds << sendEvent(name: "setTempHold", value: "cancelHold", displayed: false, isStateChange: true)
 	}
+    //Also update the tile immediately (shouldn't really do this as should wait until the next update,
+    //but if we dont do it now, then it is quite confusing)
+    cmds << sendEvent(name: "thermostatSetpoint", value: newtemp, displayed: false)
+	cmds << sendEvent(name: "heatingSetpoint", value: newtemp, displayed: false)
+	cmds << sendEvent(name: "coolingSetpoint", value: newtemp, displayed: false)
     return cmds
 }
 
