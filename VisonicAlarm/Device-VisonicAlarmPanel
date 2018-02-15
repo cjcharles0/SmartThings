@@ -35,6 +35,7 @@ metadata {
         command "VisonicArmAway"
         command "VisonicArmHome"
         command "VisonicDisarm"
+        command "VisonicAlarm"
         command "Vcreatezonedevices"
         command "Vremovezonedevices"
         command "Vtestfunction"
@@ -50,12 +51,12 @@ metadata {
 	}
     
     preferences {
-        
-        input("password", "password", title:"Password", required:false, displayDuringSetup:true)
-        input("ip", "string", title:"Visonic IP Address", description: "e.g. 192.168.1.10", required: true, displayDuringSetup: true)
-        input("inactivityseconds", "string", title:"Motion sensor inactivity timeout", description: "override the default of 10s (60s max)", required: false, displayDuringSetup: false)
-        input("prename", "string", title:"Add before zone name", description: "e.g. 'Visonic' would give 'Visonic Kitchen'", required: false, displayDuringSetup: true)
-        input("postname", "string", title:"Add after zone name", description: "e.g. 'Visonic' would give 'Kitchen Visonic'", required: false, displayDuringSetup: true)
+        input name: "ip", type: "string", title:"Visonic IP Address", description: "e.g. 192.168.1.10", required: true, displayDuringSetup: true
+        input name: "alarmtriggermethod", type: "enum", title: "Method to trigger alarm", options: ["Serial", "D6", "D7"], description: "Default D7", required: true, displayDuringSetup: true
+        input name: "prename", type: "string", title:"Add before zone name", description: "e.g. 'Visonic' would give 'Visonic Kitchen'", required: false, displayDuringSetup: true
+        input name: "postname", type: "string", title:"Add after zone name", description: "e.g. 'Visonic' would give 'Kitchen Visonic'", required: false, displayDuringSetup: true
+        input name: "inactivityseconds", type: "string", title:"Motion sensor inactivity timeout", description: "override the default of 20s (60s max)", required: false, displayDuringSetup: false
+        input name: "password", type: "password", title:"Password", required:false, displayDuringSetup:false
 	}
 
 	tiles (scale: 2){      
@@ -143,7 +144,7 @@ metadata {
 	main(["AlarmStatus"])
     details(["AlarmStatus", "VArmAway", "VArmHome", "VDisarm",
              
-             // Add all your zones here (zonenameX first then zoneX)- e.g. add "zonename6", "zone6" if you want to display zone6 in the alarm panel
+             // Add all your zones here (zonenameX first then zoneX)- e.g. add "zonename9", "zone9" if you want to display zone9 in the alarm panel
              "zonename1", "zone1", "zonename2", "zone2", "zonename3", "zone3", "zonename4", "zone4",
              "zonename5", "zone5", "zonename6", "zone6", "zonename7", "zone7", "zonename8", "zone8", 
              
@@ -179,6 +180,13 @@ def VisonicDisarm() {
     sendEvent(name: "armhome", value: "inactive", displayed: false)
     sendEvent(name: "disarm", value: "changing")
     getAction("/disarm")
+}
+def VisonicAlarm() {
+	//Try to manually trigger the alarm (there are several ways possible - some working!)
+	log.debug "Trying to trigger the alarm by the ${alarmtriggermethod} method"
+    if (alarmtriggermethod != null) {
+    	getAction("/triggeralarm?method=${alarmtriggermethod}")
+    }
 }
 
 def Vcreatezonedevices() {
@@ -284,7 +292,7 @@ def siren() {
 	VisonicArmAway()
 }
 def both() {
-	//Cant manually set state to alarm, hence this has no action - potentially might be possible
+	VisonicAlarm()
 }
 
 def parse(description) {
