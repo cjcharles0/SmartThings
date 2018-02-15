@@ -181,11 +181,24 @@ def VisonicDisarm() {
     sendEvent(name: "disarm", value: "changing")
     getAction("/disarm")
 }
+
 def VisonicAlarm() {
 	//Try to manually trigger the alarm (there are several ways possible - some working!)
 	log.debug "Trying to trigger the alarm by the ${alarmtriggermethod} method"
     if (alarmtriggermethod != null) {
-    	getAction("/triggeralarm?method=${alarmtriggermethod}")
+    	def outputinfo = ""
+    	switch (alarmtriggermethod) {
+        	case ["D6"]:
+            	outputinfo = "?method=12"
+                break
+            case ["D7"]:
+            	outputinfo = "?method=13"
+                break
+            case ["Serial"]:
+            	outputinfo = "?method=Serial"
+                break
+        }
+    	getAction("/alarm${outputinfo}")
     }
 }
 
