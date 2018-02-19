@@ -124,9 +124,11 @@ def testcommand(){
             //Do nothing as we already have a test device
         }
         else {
+        	//Might reach here if have no child devices
             addChildDevice("cjcharles0", "Neo Thermostat", "neostatTemp", device.hub.id, [name: "neo temp device", label: name, completedSetup: true]) //"cjcharles0", //device.hub.id
         }
     } catch (e) {
+    	//Might reach here if you have child devices but not the current one
         log.debug "Couldnt find device, probably doesn't exist so safe to add a new one: ${e}"
         addChildDevice("cjcharles0", "Neo Thermostat", "neostatTemp", device.hub.id, [name: "neo temp device", label: name, completedSetup: true]) //"cjcharles0", //device.hub.id
     }
@@ -233,7 +235,7 @@ def childRequestingRefresh(String dni) {
 	//Send Refresh command - this will occur for all thermostats, not just the one which requested it
     def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
     if (state.debug) log.debug "Requesting refreshed info for ${dni}"
-	getAction("/neorelay?device=hubzonerefresh&command={\"INFO\":\"${deviceid}\"}")
+	getAction("/neorelay?device=${dni}&command={\"INFO\":\"${deviceid}\"}")
 }
 def childAwayOn(String dni) {
 	//Do not use, use FrontOn instead
@@ -322,14 +324,14 @@ def childTimerHoldOn(String minutes, String dni) {
 	//Send Child Timer Hold On command
     def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
     log.debug "Requesting timer hold on for child ${deviceid}"
-    getAction("/neorelay?device=${dni}&command={\"TIMER_HOLD_ON\":[\"${minutes}\", \"${deviceid}\"]}")
+    getAction("/neorelay?device=${dni}&command={\"TIMER_HOLD_ON\":[${minutes},\"${deviceid}\"]}")
 }
 
 def childTimerHoldOff(String minutes, String dni) {
 	//Send Child Timer Hold Off command
     def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
     log.debug "Requesting timer hold off for child ${deviceid}"
-    getAction("/neorelay?device=${dni}&command={\"TIMER_HOLD_OFF\":[\"${minutes}\", \"${deviceid}\"]}")
+    getAction("/neorelay?device=${dni}&command={\"TIMER_HOLD_OFF\":[${minutes},\"${deviceid}\"]}")
 }
 
 // This function receives the response from the NeoHub bridge and updates things, or passes the response to an individual thermostat
@@ -377,7 +379,7 @@ def parse(description) {
         }
 		if (result.relaydevice == "hubzonerefresh") {
         	//Device is a fake device for refreshing all zone info, so process responses out to each thermostat device
-            if (state.debug) log.debug "Received a refresh command from NeoHub"
+			log.debug "Should never get here now..."
             for (deviceinfo in result.relayresult.devices) {
                 //If we have a devices key then it is an INFO command so process the events to update the DH
                 if (deviceinfo.DEVICE_TYPE < 10) {
@@ -395,9 +397,22 @@ def parse(description) {
         }
         if (result.relaydevice.contains("neostat")) {
         	//We got a command/response for an individual thermostat so send data to thermostat
+            if (state.debug) log.debug "Received a response from NeoHub for ${result.relaydevice}"
+			def payload
+            if (result.relayresult.containsKey("devices")) {
+            	//Take the first item in the devices array since there should only be one item in it...
+            	payload = result.relayresult.devices.first()
+            	//for (individualdevice in result.relayresult.devices) {
+            	//	payload = individualdevice
+                //}
+			}
+            else {
+            	payload = result
+            }
+            //Now we try to find the child, and if found then send it the payload
             try {
             	def resultdevice = getChildDevices().find { it.deviceNetworkId == result.relaydevice}
-            	resultdevice?.processNeoResponse(result)
+            	resultdevice?.processNeoResponse(payload)
             } catch (e) {
                 log.debug "Couldnt process response, probably this child doesnt exist: ${e}"
             }
