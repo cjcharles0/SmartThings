@@ -88,9 +88,9 @@ metadata {
             state "active", label:"Disarmed", action:"", backgroundColor:"#00CC00"
         }
         
-        //If you have more than 8 zones then change the line below to a different number.
-        //If you have wired zones then this number should be 30
-        (1..8).each { n ->
+        //This will create a tile for all zones up to 30 (which should cover most boards including Wired ones)
+        //We can have all of these tiles, but not display them
+        ((1..30)).each { n ->
             valueTile("zonename$n", "visonicname$n", height: 1, width: 2) {
                 state "default", label:'${currentValue}', backgroundColor:"#FFFFFF"}
             standardTile("zone$n", "visonic$n", height: 1, width: 1) {
@@ -144,7 +144,7 @@ metadata {
 	main(["AlarmStatus"])
     details(["AlarmStatus", "VArmAway", "VArmHome", "VDisarm",
              
-             // Add all your zones here (zonenameX first then zoneX)- e.g. add "zonename9", "zone9" if you want to display zone9 in the alarm panel
+             // Add all your zones here (zonenameX first then zoneX)- e.g. add "zonename29", "zone29" if you want to display zone 29 in the alarm panel
              "zonename1", "zone1", "zonename2", "zone2", "zonename3", "zone3", "zonename4", "zone4",
              "zonename5", "zone5", "zonename6", "zone6", "zonename7", "zone7", "zonename8", "zone8", 
              
@@ -254,11 +254,9 @@ def configure(){
     
     def requeststring = "/config?ip_for_st=${device.hub.getDataValue("localIP")}&port_for_st=${device.hub.getDataValue("localSrvPortTCP")}"
     
-	if (settings.inactivityseconds.isInteger()) {
-    	requeststring = requeststring & "&inactivity_seconds=${settings.inactivityseconds}"
-    }
-    else {
-    	//Dont do anything as we dont need to update it
+    if (inactivityseconds?.isInteger()) {
+    	//Inactivityseconds is both populated and an integer, so lets send it to the Wemos
+        requeststring = requeststring & "&inactivity_seconds=${settings.inactivityseconds}"
     }
     
     //log.debug requeststring
