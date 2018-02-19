@@ -256,7 +256,7 @@ def configure(){
     
     if (inactivityseconds?.isInteger()) {
     	//Inactivityseconds is both populated and an integer, so lets send it to the Wemos
-        requeststring = requeststring & "&inactivity_seconds=${settings.inactivityseconds}"
+        requeststring = requeststring + "&inactivity_seconds=${settings.inactivityseconds}"
     }
     
     //log.debug requeststring
