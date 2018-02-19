@@ -149,7 +149,7 @@ metadata {
              "zonename5", "zone5", "zonename6", "zone6", "zonename7", "zone7", "zonename8", "zone8", 
              
              "refresh", "configure", "ip", "alarm", "createtile", "removetile"
-             , "testtile" //If you have trouble creating your child zones you can uncomment the start of this line (remove // before the comma)
+             //, "testtile" //If you have trouble creating your child zones you can uncomment the start of this line (remove // before the comma)
              				//After pressing the "test_function" button on your phone you can re-comment it, to tidy up your alarm panel device.
                             //This is only needed if you have trouble creating your zones.
              ])
@@ -246,7 +246,7 @@ def Vtestfunction() {
     }
 }
 
-//This will configure the WeMos D1 to talk to ST
+//This will configure the WeMos to talk to ST
 def configure(){
 	def cmds = []
 	log.debug "Configuring Visonic (getting zones+types, configuring IP/port/timeout)"
@@ -405,6 +405,13 @@ def parse(description) {
 				//log.debug "Got Closed zone: " + result.zone_id + ", which is called - " + curdevice
             	sendEvent(name: "visonic"+result.zone_id, value: "closed", displayed: false, isStateChange: true)
                 curdevice?.sendEvent(name: "contact", value: "closed")
+                break
+
+            case "Tamper":
+				//log.debug "Got Tamper for zone: " + result.zone_id + ", which is called - " + curdevice
+                //We'll set it to open for now, since at least that gives an indication something is wrong!
+            	sendEvent(name: "visonic"+result.zone_id, value: "open", displayed: false, isStateChange: true)
+                curdevice?.sendEvent(name: "contact", value: "open")
                 break
 
             default:
