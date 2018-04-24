@@ -39,12 +39,28 @@ IPAddress PM_LAN_BROADCAST_IP(192, 168, 32, 12);
 #define Firmware_Date __DATE__
 #define Firmware_Time __TIME__
 
+#define JsonHeaderText "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n"
 
 //Default values for SmartThings, these are only used when first booting and stored in EEPROM from first boot onwards, no need to change
 char IP_FOR_ST[17];
 char PORT_FOR_ST[7];
-//Inactivity timer wil always default to this value on boot (it is not stored in EEPROM at the moment, though only resets when the Powermax power cycles (hence rarely))
-int inactivity_seconds = 10;
+char STATIC_IP[17];
+char STATIC_GATEWAY[17];
+char STATIC_SUBNET[17];
+
+//Inactivity timer wil always default to this value on boot (it is not stored in EEPROM at the moment)
+//This will reset when the Wemos power cycles (mainly because the Powermax does))
+int inactivity_seconds = 20;
+//These define the pins used for triggering alarms (or something else!) and the timer to turn them off
+int activatedPinA = -1;
+int activatedPinB = -1;
+unsigned long userPinResetTime = 0;
+
+#define EEPROM_IP_ADDR_LOC 100
+#define EEPROM_PORT_ADDR_LOC 120
+#define EEPROM_STATIC_IP_LOC 130
+#define EEPROM_STATIC_GATEWAY_LOC 150
+#define EEPROM_STATIC_SUBNET_LOC 170
 
 //Global variables for managing zones
 int zones_enrolled_count = MAX_ZONE_COUNT;
@@ -52,9 +68,6 @@ int max_zone_id_enrolled = MAX_ZONE_COUNT;
 
 #define ALARM_STATE_CHANGE 0
 #define ZONE_STATE_CHANGE 1
-#define EEPROM_IP_ADDR_LOC 100
-#define EEPROM_PORT_ADDR_LOC 120
-
 
 void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsigned char zoneID, int zone_or_system_update) {
   char message_text[600];
@@ -116,6 +129,18 @@ void ReadEEPROMSettings() {
     for(int ix=0; ix < sizeof(PORT_FOR_ST); ix++) {
        PORT_FOR_ST[ix] = EEPROM.read(EEPROM_PORT_ADDR_LOC + ix);
     }
+    
+    for(int ix=0; ix < sizeof(STATIC_IP); ix++) {
+       STATIC_IP[ix] = EEPROM.read(EEPROM_STATIC_IP_LOC + ix);
+    }
+
+    for(int ix=0; ix < sizeof(STATIC_GATEWAY); ix++) {
+       STATIC_GATEWAY[ix] = EEPROM.read(EEPROM_STATIC_GATEWAY_LOC + ix);
+    }
+
+    for(int ix=0; ix < sizeof(STATIC_SUBNET); ix++) {
+       STATIC_SUBNET[ix] = EEPROM.read(EEPROM_STATIC_SUBNET_LOC + ix);
+    }
 }
 
 void WriteEEPROMSettings() {
@@ -136,7 +161,8 @@ void WriteEEPROMSettings() {
 class MyPowerMax : public PowerMaxAlarm
 {
 public:
-    bool zone_motion[MAX_ZONE_COUNT+1] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    bool zone_motion[MAX_ZONE_COUNT+1] = {0};
+    
     virtual void OnStatusChange(const PlinkBuffer  * Buff)
     {
         //call base class implementation first, this will send ACK back and upate internal state.
@@ -208,12 +234,33 @@ public:
     void CheckInactivityTimers() {
         for(int ix=1; ix<=max_zone_id_enrolled; ix++) {
             if (zone_motion[ix]) {
-                if (os_getCurrentTimeSec() - zone[ix].lastEventTime > inactivity_seconds) {
-                    zone_motion[ix]= false;
+                if ((os_getCurrentTimeSec() - zone[ix].lastEventTime) > inactivity_seconds) {
+                    zone_motion[ix] = false;
                     SendJSONMessage(this->getZoneName(ix), "No Motion", ix, ZONE_STATE_CHANGE);  
                 }
             }
         }
+    }
+
+    bool sendCommandCC(int valzz) {
+
+        unsigned char buff[] = {0xA1,0x00,0x00,0x07,0x12,0x34,0x00,0x00,0x00,0x00,0x00,0x43}; addPin(buff, 4, true);
+        char str[1];
+        sprintf(str, "%#X", valzz);
+        buff[3] = valzz;
+      
+        unsigned short i;
+        char printBuffer[MAX_BUFFER_SIZE*3+3];
+        char *bufptr;      /* Current char in buffer */
+        bufptr=printBuffer;
+        for (i=0;i<(sizeof(buff));i++) {
+            sprintf(bufptr,"%02X ",buff[i]);
+            bufptr=bufptr+3;
+        }  
+      
+        DEBUG(LOG_DEBUG,"BufferSize: %d" ,sizeof(buff));
+        DEBUG(LOG_DEBUG,"Buffer: %s", printBuffer); 
+        return sendBuffer(buff, sizeof(buff));
     }
 
 };
@@ -270,7 +317,29 @@ void handleRoot() {
   WiFi.macAddress(mac);
 
   char szTmp[PRINTF_BUF*2];
-  sprintf(szTmp, "<html><b>Dashboard for esp8266 controlled Visonic Powermax.</b><br><br>MAC Address: %02X%02X%02X%02X%02X%02X<br>Uptime: %02d:%02d:%02d.%02d<br>Free heap: %u<br><br>Web Commands<br><a href='/armaway' target='_blank'>Arm Away</a><br><a href='/armhome' target='_blank'>Arm Home</a><br><a href='/disarm' target='_blank'>Disarm</a><br><br>JSON Endpoints<br><a href='/status'>Alarm Status</a><br><a href='/settings'>Smart Things Details</a><br><a href='/getzonenames'>Get Zone Names</a><br><br>Configuration<br><a href='/config'>inactivity_seconds, ip_for_st, port_for_st</a><br><a href='/update'>Update Firmware</a></html>", mac[0],mac[1],mac[2],mac[3],mac[4],mac[5], (int)days, (int)hours, (int)minutes, (int)val, ESP.getFreeHeap());
+  sprintf(szTmp, "<html>"
+                "<b>Dashboard for esp8266 controlled Visonic Powermax.</b><br><br>"
+                "MAC Address: %02X%02X%02X%02X%02X%02X<br>"
+                "Uptime: %02d:%02d:%02d.%02d<br>"
+                "Free heap: %u<br><br>"
+                "Web Commands<br>"
+                "<a href='/disarm' target='_blank'>Disarm</a><br>"
+                "<a href='/armaway' target='_blank'>Arm Away</a><br>"
+                "<a href='/armhome' target='_blank'>Arm Home</a><br>"
+                "<a href='/armawayinstant' target='_blank'>Instant Arm Away</a><br>"
+                "<a href='/armhomeinstant' target='_blank'>Instant Arm Home</a><br>"
+                "<a href='/alarm' target='_blank'>Sound the Alarm Options</a><br><br>"
+                "JSON Endpoints<br>"
+                "<a href='/status'>Alarm Status</a><br>"
+                "<a href='/settings'>Smart Things Details</a><br>"
+                "<a href='/getzonenames'>Get Zone Names</a><br><br>"
+                "Configuration<br>"
+                "<a href='/config'>inactivity_seconds, ip_for_st, port_for_st</a><br>"
+                "<a href='/update'>Update Firmware</a>"
+                "</html>",
+                mac[0],mac[1],mac[2],mac[3],mac[4],mac[5],
+                (int)days, (int)hours, (int)minutes, (int)val,
+                ESP.getFreeHeap());
   server.send(200, "text/html", szTmp);
 }
 
@@ -328,10 +397,7 @@ void handleStatus() {
   //Now collect all status information and send it to the user
   WiFiClient client = server.client();
   
-  client.print("HTTP/1.1 200 OK\r\n");
-  client.print("Content-Type: text/plain\r\n");
-  client.print("Connection: close\r\n");
-  client.print("\r\n");
+  client.print(JsonHeaderText);
 
   WebOutput out(&client);
   pm.dumpToJson(&out);
@@ -344,10 +410,8 @@ void handleRefresh() {
   //This returns the current arm state in case it gets out of sync somehow
   WiFiClient client = server.client();
   
-  client.print("HTTP/1.1 200 OK\r\n");
-  client.print("Content-Type: text/plain\r\n");
-  client.print("Connection: close\r\n");
-  client.print("\r\n{\"stat_str\":\"");
+  client.print(JsonHeaderText);
+  client.print("{\"stat_str\":\"");
 
   client.print(pm.GetStrPmaxSystemStatus(pm.GetSystemStatus()));
 
@@ -360,10 +424,8 @@ void handleSettings() {
   //This returns the current arm state in case it gets out of sync somehow
   WiFiClient client = server.client();
   
-  client.print("HTTP/1.1 200 OK\r\n");
-  client.print("Content-Type: text/plain\r\n");
-  client.print("Connection: close\r\n");
-  client.print("\r\n{\"ip_for_st\":\"");
+  client.print(JsonHeaderText);
+  client.print("{\"ip_for_st\":\"");
   client.print(IP_FOR_ST);
   client.print("\",\r\n\"port_for_st\":");
   client.print(PORT_FOR_ST);
@@ -381,6 +443,10 @@ void handleSettings() {
 
 void handleGetZoneNames() {
   //This returns all zone names and types
+  int sizeofoutputstring = 170;
+  char outputstring[sizeofoutputstring+1]; //Used to store the output for each zone to speed output
+  char currentzonename[70]; //Max zone name of 70 bytes hence copy in one less to ensure an ending
+  char numberasstring[5];
 
   //First update zone count to reduce checking on unused zones
   pm.UpdateZonesEnrolledCount();
@@ -388,28 +454,33 @@ void handleGetZoneNames() {
   //Now setup the webserver connection and JSON creation
   WiFiClient client = server.client();
 
-  client.print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n{\"namedzonesenrolled\":");
-  client.print(zones_enrolled_count);
-  client.print(",\r\n\"maxzoneid\":");
-  client.print(max_zone_id_enrolled);
-  client.print(",\r\n\"zones\":[");
+  strncpy(outputstring, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n{\"namedzonesenrolled\":", sizeofoutputstring);
+  itoa(zones_enrolled_count, numberasstring, 10);
+  strncat(outputstring, numberasstring, _max(0,sizeofoutputstring-strlen(outputstring))); //.c_str()
+  strncat(outputstring, ",\r\n\"maxzoneid\":", _max(0,sizeofoutputstring-strlen(outputstring)));
+  itoa(max_zone_id_enrolled, numberasstring, 10);
+  strncat(outputstring, numberasstring, _max(0,sizeofoutputstring-strlen(outputstring)));
+  strncat(outputstring, ",\r\n\"zones\":[\r\n", _max(0,sizeofoutputstring-strlen(outputstring)));
+  client.print(outputstring);
+  //client.write(outputstring, strlen(outputstring));
+  
   for(int ix=1; ix<=max_zone_id_enrolled; ix++) {
-      char currentzonename[50]; //Max zone name of 50 bytes
-      strcpy(currentzonename, pm.getZoneName(ix));
-      currentzonename[49] = '\0';
+     strncpy(currentzonename, pm.getZoneName(ix), 69);
      if (currentzonename != "Unknown") {
-     //if (pm.getZoneName(ix) != "Unknown") {
-        client.print("{\"zoneid\":");
-        client.print(ix);
-        client.print(",\r\n\"zonename\":\"");
-        client.print(currentzonename);
-        //client.print(pm.getZoneName(ix));
-        client.print("\",\r\n\"zonetype\":\"");
-        client.print(pm.getZoneSensorType(ix));
-        client.print("\"},\r\n");
+        //It isnt unknown so create an output text that we can send back to the client
+        strncpy(outputstring, "{\"zoneid\":", sizeofoutputstring);
+        itoa(ix, numberasstring, 10);
+        strncat(outputstring, numberasstring, _max(0,sizeofoutputstring-strlen(outputstring))); //.c_str()
+        strncat(outputstring, ",\r\n\"zonename\":\"", _max(0,sizeofoutputstring-strlen(outputstring)));
+        strncat(outputstring, currentzonename, _max(0,sizeofoutputstring-strlen(outputstring)));
+        strncat(outputstring, "\",\r\n\"zonetype\":\"", _max(0,sizeofoutputstring-strlen(outputstring)));
+        strncat(outputstring, pm.getZoneSensorType(ix), _max(0,sizeofoutputstring-strlen(outputstring)));
+        strncat(outputstring, "\"},\r\n", _max(0,sizeofoutputstring-strlen(outputstring)));
+        client.print(outputstring);
+        //client.write(outputstring, strlen(outputstring));
      }
   }
-  client.print("]}");
+  client.println("]}");
   
   client.stop();
 }
@@ -418,9 +489,7 @@ void handleConfig() {
   //Start the response
   bool updateEEPROM = false;
   WiFiClient client = server.client();
-  client.print("HTTP/1.1 200 OK\r\n");
-  client.print("Content-Type: text/plain\r\n");
-  client.print("Connection: close\r\n\r\n");
+  client.print(JsonHeaderText);
   client.print("{\"update_config\":\"success\",\r\n");
   
   //If we have received an inactivity timer variable then update it
@@ -465,7 +534,51 @@ void handleConfig() {
   if (updateEEPROM) {
       WriteEEPROMSettings();
   }
+}
 
+void handleAlarm() {
+  //Check for a method and if so, try to process it
+  if (server.hasArg("method")) {
+    int tempnumber = -1;
+    
+    WiFiClient client = server.client();
+    client.print(JsonHeaderText);
+    client.print("{\"alarm_triggered\":\"true\"}");
+    
+    if (isDigit(server.arg("method").charAt(0))) {
+      tempnumber = (int)strtol(server.arg("method").c_str(), NULL, 10);
+      //If pin number between 0 and 16 then probably valid pin so lets try switching it!
+      if ((tempnumber <= 16) && (tempnumber >= 0)) {
+        if (activatedPinA == -1) {
+          activatedPinA = tempnumber;
+        }
+        else {
+          activatedPinB = tempnumber;
+        }
+        userPinResetTime = millis();
+        digitalWrite(tempnumber, HIGH);
+        pinMode(tempnumber, OUTPUT);
+        digitalWrite(tempnumber, LOW);
+      }
+    }
+    else if (server.arg("method") == "Serial") {
+      //Found word serial so send serial trigger to alarm
+      handleTriggerAlarm();
+    }
+    
+    //Can't easily close the window now, buts leave here anyway
+    //server.send(200, "text/html", " {} <body> window.onload = <script> window.close() </script>; </body>");
+  }
+  else {
+    //No command so send a response to say so
+    server.send(200, "text/html", "<html><b>To trigger an alarm you must add the argument 'method' e.g. /alarm?method=12 - but use carefully as some pins may crash the Wemos!</b></html>");
+    return;
+  }
+}
+
+void handleTriggerAlarm() {
+  DEBUG(LOG_NOTICE,"Trigger Alarm Command received from Web");
+  pm.sendCommand(Pmax_ALARM);
 }
 
 void handleArmAway() {
@@ -483,6 +596,36 @@ void handleDisarm() {
   pm.sendCommand(Pmax_DISARM);
 }
 
+void handleArmAwayInstant() {
+  DEBUG(LOG_NOTICE,"Instant Arm Away Command from Web");
+  pm.sendCommand(Pmax_ARMAWAY_INSTANT);
+}
+
+void handleArmHomeInstant() {
+  DEBUG(LOG_NOTICE,"Instant Arm Home command from Web");
+  pm.sendCommand(Pmax_ARMHOME_INSTANT);
+}
+
+void handleRestart() {
+  //This restarts the ESP from a web command in case it is needed
+  server.send(200, "text/plain", "ESP is restarting (can also reset with changed URL)");
+  server.stop();
+  delay(2000);
+  ESP.restart();
+}
+
+void handleReboot() {
+  handleRestart();
+}
+
+void handleReset() {
+  //This resets the ESP from a web command in case it is needed
+  server.send(200, "text/plain", "ESP is resetting (can also restart with changed URL)");
+  server.stop();
+  delay(2000);
+  ESP.reset();
+}
+
 void handleNotFound(){
   String message = "File Not Found\n\n";
   message += "URI: ";
@@ -498,7 +641,32 @@ void handleNotFound(){
   server.send(404, "text/plain", message);
 }
 
+void handleTest() {
+  //Start the response
+  WiFiClient client = server.client();
+  client.print(JsonHeaderText);
+  client.print("{\"test\":\"");
+  
+  //If we have received an inactivity timer variable then update it
+  if (server.hasArg("value")) {
+      char str[8];
+      int tempnumber = atoi(server.arg("value").c_str());
+      sprintf(str, "%#0X", tempnumber);
+      client.print(str);
+      client.print("\"}\r\n");
+      pm.sendCommandCC(tempnumber);
+      client.stop();
+  }
+}
+
 void setup(void){
+
+  //First lets make a few common output pins as high just to prevent accidental triggering of the alarm
+  //Paranoid process is to set it high, then make it an output, and then set high just to be super safe
+  digitalWrite(12, HIGH);
+  digitalWrite(13, HIGH);
+  digitalWrite(14, HIGH);
+  digitalWrite(0, HIGH);
 
   Serial.begin(9600); //connect to PowerMax interface
 
@@ -538,13 +706,22 @@ void setup(void){
       ESP.reset();
       delay(5000);
   }
+
+  //Try and use static IP address if one is loaded
+  IPAddress _ip,_gw,_sn;
+  //strncpy(message_text, STATIC_IP, 17)
+  _ip.fromString(STATIC_IP);
+  _gw.fromString(STATIC_GATEWAY);
+  _sn.fromString(STATIC_SUBNET);
+  //wifiManager.setSTAStaticIPConfig(_ip, _gw, _sn);
+  // Can use WiFi.disconnect(); to reset credentials and wifi
   
   // Set up mDNS responder:
   // - first argument is the domain name, in this example
   //   the fully-qualified domain name is "esp8266.local"
   // - second argument is the IP address to advertise
   //   we send our IP address on the WiFi network
-  if (!MDNS.begin("esp8266-PowermaxBridge")) {
+  if (!MDNS.begin("testespPowermaxBridge")) {
     Serial.println("Error setting up MDNS responder!");
     while(1) { 
       delay(1000);
@@ -557,7 +734,11 @@ void setup(void){
   server.on("/refresh", handleRefresh);
   server.on("/getzonenames", handleGetZoneNames);
   server.on("/config", handleConfig);
-  //server.on("/config", HTTP_POST, handleConfig);
+  server.on("/restart", handleRestart);
+  server.on("/reset", handleReset);
+  server.on("/reboot", handleReboot);
+  server.on("/test", handleTest);
+  server.on("/alarm", handleAlarm);
   server.on("/armaway", [](){
     handleArmAway();
     server.send(200, "text/html", " {} <body> window.onload = <script> window.close() </script>; </body>");
@@ -568,6 +749,14 @@ void setup(void){
   });
   server.on("/disarm", [](){
     handleDisarm();
+    server.send(200, "text/html", " {} <body> window.onload = <script> window.close() </script>; </body>");
+  });
+  server.on("/armawayinstant", [](){
+    handleArmAwayInstant();
+    server.send(200, "text/html", " {} <body> window.onload = <script> window.close() </script>; </body>");
+  });
+  server.on("/armhomeinstant", [](){
+    handleArmHomeInstant();
     server.send(200, "text/html", " {} <body> window.onload = <script> window.close() </script>; </body>");
   });
   server.on("/ping", [](){
@@ -876,6 +1065,21 @@ void loop(void){
 
   //Here we also check if we need to send any inactivity messages to ST
   pm.CheckInactivityTimers();
+
+  //Here we reset manual pin timers in case they are running (i.e. output relay pin is on)
+  if (userPinResetTime > 0) {
+    if ((millis() - userPinResetTime >= 5000)) {
+      userPinResetTime = 0;
+      if (activatedPinA != -1) {
+        digitalWrite(activatedPinA, HIGH);
+        activatedPinA = -1;
+      }
+      if (activatedPinB != -1) {
+        digitalWrite(activatedPinB, HIGH);
+        activatedPinB = -1;
+      }
+    }
+  }
 
   static unsigned long lastMsg = 0;
   if(serialHandler(&pm) == true)
