@@ -12,8 +12,8 @@
  *
  *  SmartLife RGBW Controller
  *
- *  Author: Eric Maycock (erocm123)
- *  Date: 2016-12-10
+ *  Author: Eric Maycock (erocm123) and updated by cjcharles
+ *  Date: 2018-05-03
  */
 
 import groovy.json.JsonSlurper
@@ -1134,9 +1134,9 @@ Default: Previous
     <Item label="W2" value="W2" />
     <Item label="Custom" value="Custom" />
 </Value>
-<Value type="text" byteSize="1" index="custom" label="Custom Color in Hex - RRGGBBW1W2 e.g. FFFFFFFFFF" min="" max="" value="" setting_type="preference" fw="">
+<Value type="text" byteSize="1" index="custom" label="Custom Color in Hex - RRGGBBW1W2" min="" max="" value="" setting_type="preference" fw="">
 <Help>
-(ie ffffff)
+ e.g. FF00008080 would be Red at 100% and W1+W2 at 50%
 If \"Custom\" is chosen above as the default color. Default level does not apply if custom hex value is chosen.
 </Help>
 </Value>
