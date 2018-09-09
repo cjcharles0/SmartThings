@@ -14,7 +14,7 @@
  *
  *  Author: Chris Charles (cjcharles0) & A Lee
  *  Date: 2017-02-10
- *  Version: 1.01
+ *  Version: 1.03
  */
 
 import groovy.json.JsonSlurper
@@ -40,9 +40,20 @@ metadata
 		command "AlarmDisarm"
         command "AlarmTrigger"
         
-		command "ZoneCreateZoneDevices"
-		command "ZoneRemoveZoneDevices"
+		command "ZoneCreateChildDevices"
+		command "ZoneRemoveChildDevices"
 		command "ZoneTestFunction"
+        
+        command "childOff"
+        command "childOn"
+        command "childRefresh"
+		command "outputoff"
+		command "outputon"
+        
+        (1..8).each { n ->
+			command "on$n"
+			command "off$n"
+		}
         
 		command "stop"
 		command "off"
@@ -112,6 +123,16 @@ metadata
 				state "bypass", label:"Bypass", action:"", icon:"", backgroundColor:"#CCCC00"
 				}
 		}
+        
+        //This will create an output tile as needed for control, not relevant to Visonic
+		(1..8).each { n ->
+			valueTile("outputname$n", "paneloutputname$n", height: 1, width: 2) {
+				state "default", label:'${currentValue}', backgroundColor:"#FFFFFF"}
+			standardTile("output$n", "paneloutput$n", height: 1, width: 1) {
+				state "on", label:"On", action:"off$n", icon:"", backgroundColor:"#00CC00"
+				state "off", label:"Off", action:"on$n", icon:""
+				}
+		}
 		
 		standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 1, height: 1)
 		{
@@ -130,11 +151,11 @@ metadata
 		
 		standardTile("createtile", "device.createzonedevices", inactiveLabel: false, decoration: "flat", width: 2, height: 1)
 		{
-			state "default", label:'Create Zone Devices', action:"ZoneCreateZoneDevices", icon: "st.unknown.zwave.remote-controller"
+			state "default", label:'Create Zone Devices', action:"ZoneCreateChildDevices", icon: "st.unknown.zwave.remote-controller"
 		}
 		standardTile("removetile", "device.removezonedevices", inactiveLabel: false, decoration: "flat", width: 2, height: 1)
 		{
-			state "default", label:'Remove Zone Devices', action:"ZoneRemoveZoneDevices", icon: "st.samsung.da.washer_ic_cancel"
+			state "default", label:'Remove Zone Devices', action:"ZoneRemoveChildDevices", icon: "st.samsung.da.washer_ic_cancel"
 		}
 		
 		standardTile("testtile", "device.testfunction", inactiveLabel: false, decoration: "flat", width: 2, height: 1)
@@ -163,6 +184,9 @@ metadata
 			 "zonename1", "zone1", "zonename2", "zone2", "zonename3", "zone3", "zonename4", "zone4",
 			 "zonename5", "zone5", "zonename6", "zone6", "zonename7", "zone7", "zonename8", "zone8", 
 			 
+             // Add any outputs here by uncommenting the row and then add in the same format as for zones, but without output rather than zone
+             "outputname1", "output1",
+             
 			 "refresh", "configure", "ip", "alarm", "createtile", "removetile"
 			 //, "testtile" //If you have trouble creating your child zones you can uncomment the start of this line (remove // before the comma)
 			 				//After pressing the "test_function" button on your phone you can re-comment it, to tidy up your alarm panel device.
@@ -220,18 +244,18 @@ def AlarmTrigger() {
     }
 }
 
-def ZoneCreateZoneDevices()
+def ZoneCreateChildDevices()
 {
 	//This will create child devices
-	//ZoneRemoveZoneDevices() //Cant do this here as timing gets messed up
+	//ZoneRemoveChildDevices() //Cant do this here as timing gets messed up
 	log.debug "Requesting List of Alarm Zones"
 	getAction("/getzonenames")
 }
 
-def ZoneRemoveZoneDevices()
+def ZoneRemoveChildDevices()
 {
 	//This will remove child devices
-	log.debug "Removing Child Zone Devices"
+	log.debug "Removing Child Devices"
 	try
 	{
 		getChildDevices()?.each
@@ -497,9 +521,34 @@ def parse(description) {
                 break
 
 			default:
-				log.debug "Unknown status received: ${result.zone_id} is ${result.zone_status}"
+				log.debug "Unknown zone status received: ${result.zone_name} / ${result.zone_id} is ${result.zone_status}"
 				break
 
+		}
+	}
+    
+	if (result.containsKey("output_status"))
+	{
+		//Got an output status so first try to find the correct child device
+		def curdevice = getChildDevices()?.find { it.deviceNetworkId == "alarmchildoutput"+result.output_id}
+		//Now switch based on what has happened
+		switch (result.output_status)
+		{
+            case "On":
+            	//Output zone has turned on
+				sendEvent(name: "paneloutput"+result.output_id, value: "on", displayed: false, isStateChange: true)
+				curdevice?.sendEvent(name: "switch", value: "on")
+				break
+
+            case "Off":
+				//Output zone has turned off
+            	sendEvent(name: "paneloutput"+result.output_id, value: "off", displayed: false, isStateChange: true)
+                curdevice?.sendEvent(name: "switch", value: "off")
+                break
+
+			default:
+				log.debug "Unknown output status received: ${result.output_name} / ${result.output_id} is ${result.output_status}"
+				break
 		}
 	}
 	
@@ -509,21 +558,29 @@ def parse(description) {
 		log.debug "Handling getzonenames page"
 		for (def curzone in result.zones)
 		{
-			//First update the name of the tile on this device
-			sendEvent(name: "panelzonename"+(curzone.zoneid), value: curzone.zonename)
-
-			//Now setup the prepend and postpend names for the new child zone device
-			def thiszonename = ""
-			if (prename != null) {thiszonename = thiszonename + prename + " "}
-			thiszonename = thiszonename + curzone.zonename
-			if (postname != null) {thiszonename = thiszonename + " " + postname}
-				
-			log.debug "Trying to add child with name: ${thiszonename}, ID: alarmchildzone${curzone.zoneid} to ${device.hub.id}"
+			//First setup the prepend and postpend names for the new child zone device
+			def thisname = ""
+			if (prename != null) {thisname = thisname + prename + " "}
+			thisname = thisname + curzone.zonename
+			if (postname != null) {thisname = thisname + " " + postname}
 
 			//Now try to find a child device with the right name - wrapped in try in case it fails to find any children
 			try
 			{
-				def curchildzone = getChildDevices()?.find { it.deviceNetworkId == "alarmchildzone${curzone.zoneid}"}
+                if (curzone.zonetype == "Output")
+                {
+            		//This is if you have an output device (not used on Visonic) - First update tile then try to find child device
+            		sendEvent(name: "paneloutputname"+(curzone.zoneid), value: curzone.zonename)
+					log.debug "Trying to add child with name: ${thisname}, ID: alarmchildoutput${curzone.zoneid} to ${device.hub.id}"
+					def curchildzone = getChildDevices()?.find { it.deviceNetworkId == "alarmchildoutput${curzone.zoneid}"}
+                }
+                else
+                {
+            		//This is the normal panel zone name - First update tile then try to find child device
+            		sendEvent(name: "panelzonename"+(curzone.zoneid), value: curzone.zonename)
+					log.debug "Trying to add child with name: ${thisname}, ID: alarmchildzone${curzone.zoneid} to ${device.hub.id}"
+                	def curchildzone = getChildDevices()?.find { it.deviceNetworkId == "alarmchildzone${curzone.zoneid}"}
+                }
 			}
 			catch (e)
 			{
@@ -540,13 +597,13 @@ def parse(description) {
 					{
 						case ["Magnet", "Contact", "Entry/Exit"]:
 							//If it is a magnetic sensor then add it as a contact sensor
-							addChildDevice("smartthings", "Open/Closed Sensor", "alarmchildzone${curzone.zoneid}", device.hub.id, [name: thiszonename])
+							addChildDevice("smartthings", "Open/Closed Sensor", "alarmchildzone${curzone.zoneid}", device.hub.id, [name: thisname])
 							log.debug "Creating contact zone"
 							break
 
 						case ["Motion"]:
 							//If it is a motion sensor then add it as a motion detector
-							addChildDevice("smartthings", "Motion Detector", "alarmchildzone${curzone.zoneid}", device.hub.id, [name: thiszonename])
+							addChildDevice("smartthings", "Motion Detector", "alarmchildzone${curzone.zoneid}", device.hub.id, [name: thisname])
 							log.debug "Creating motion zone"
 							break
 
@@ -558,8 +615,14 @@ def parse(description) {
 						case ["ZWired"]: //Correct this spelling mistake from ZWired to Wired if you are using wired sensors
 							//You will also need to change 'Open/Closed Sensor' to 'Motion Detector' if you have a wired motion sensor as the code
                             //below is currently setup for a wired contact sensor
-							addChildDevice("smartthings", "Open/Closed Sensor", "alarmchildzone${curzone.zoneid}", device.hub.id, [name: thiszonename])
+							addChildDevice("smartthings", "Open/Closed Sensor", "alarmchildzone${curzone.zoneid}", device.hub.id, [name: thisname])
 							log.debug "Creating motion zone"
+							break
+
+						case ["Output"]:
+							//This is an output zone for controlling on/off
+							addChildDevice("erocm123", "Switch Child Device", "alarmchildoutput${curzone.zoneid}", device.hub.id, [name: "${thisname} Output"])
+							log.debug "Creating output"
 							break
 
 						default:
@@ -640,3 +703,50 @@ private getHostAddress()
 		return "${ip}:80"
 	}
 }
+
+
+def outputon(outputnumber, period = 0)
+{
+	//Turn an output on (for a period of time - default to 0 (permanent) if not specified)
+	log.debug "outputon()"
+	getAction("/on?output=${outputnumber}&period=${period}")
+}
+def outputoff(outputnumber, period = 0)
+{ 
+	//Turn an output off (no period allowed for off so ignored)
+	log.debug "outputoff()"
+	getAction("/off?output=${outputnumber}")
+}
+
+def childRefresh(String dni) {
+    log.debug "childRefresh($dni)"
+    //Dont do anything yet as we dont have a local state to refresh with
+}
+def childOn(String dni) {
+    log.debug "childOn($dni)"
+    def outputnumber = dni.replaceAll("alarmchildoutput", "")
+    outputon(outputnumber, 0)
+}
+def childOff(String dni) {
+    log.debug "childOff($dni)"
+    def outputnumber = dni.replaceAll("alarmchildoutput", "")
+    outputoff(outputnumber, 0)
+}
+
+def on1() { outputon(1, 0) }
+def on2() { outputon(2, 0) }
+def on3() { outputon(3, 0) }
+def on4() { outputon(4, 0) }
+def on5() { outputon(5, 0) }
+def on6() { outputon(6, 0) }
+def on7() { outputon(7, 0) }
+def on8() { outputon(8, 0) }
+
+def off1() { outputoff(1, 0) }
+def off2() { outputoff(2, 0) }
+def off3() { outputoff(3, 0) }
+def off4() { outputoff(4, 0) }
+def off5() { outputoff(5, 0) }
+def off6() { outputoff(6, 0) }
+def off7() { outputoff(7, 0) }
+def off8() { outputoff(8, 0) }
