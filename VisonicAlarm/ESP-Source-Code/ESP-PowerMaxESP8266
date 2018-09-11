@@ -10,6 +10,8 @@
 #include <ArduinoOTA.h>
 #include <EEPROM.h>
 
+#include <PubSubClient.h>
+
 //////////////////// IMPORTANT DEFINES, ADJUST TO YOUR NEEDS //////////////////////
 //////////////////// COMMENT DEFINE OUT to disable a feature  /////////////////////
 //Telnet allows to see debug logs via network, it allso allows CONTROL of the system if PM_ALLOW_CONTROL is defined
@@ -17,6 +19,9 @@
 
 //This enables control over your system, when commented out, alarm is 'read only' (esp will read the state, but will never arm/disarm)
 #define PM_ALLOW_CONTROL
+
+//This enables flashing of ESP via OTA (WiFI)
+#define PM_ENABLE_WEB_UPDATES
 
 //This enables flashing of ESP via OTA (WiFI)
 #define PM_ENABLE_OTA_UPDATES
@@ -42,11 +47,13 @@ IPAddress PM_LAN_BROADCAST_IP(192, 168, 32, 12);
 #define JsonHeaderText "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n"
 
 //Default values for SmartThings, these are only used when first booting and stored in EEPROM from first boot onwards, no need to change
-char IP_FOR_ST[17];
+char IP_FOR_ST[27];
 char PORT_FOR_ST[7];
 char STATIC_IP[17];
 char STATIC_GATEWAY[17];
 char STATIC_SUBNET[17];
+char MQTT_USERNAME[20];
+char MQTT_PASSWORD[20];
 
 //Inactivity timer wil always default to this value on boot (it is not stored in EEPROM at the moment)
 //This will reset when the Wemos power cycles (mainly because the Powermax does))
@@ -57,10 +64,12 @@ int activatedPinB = -1;
 unsigned long userPinResetTime = 0;
 
 #define EEPROM_IP_ADDR_LOC 100
-#define EEPROM_PORT_ADDR_LOC 120
-#define EEPROM_STATIC_IP_LOC 130
-#define EEPROM_STATIC_GATEWAY_LOC 150
-#define EEPROM_STATIC_SUBNET_LOC 170
+#define EEPROM_PORT_ADDR_LOC 130
+#define EEPROM_STATIC_IP_LOC 140
+#define EEPROM_STATIC_GATEWAY_LOC 160
+#define EEPROM_STATIC_SUBNET_LOC 180
+#define EEPROM_MQTT_USERNAME_LOC 200
+#define EEPROM_MQTT_PASSWORD_LOC 230
 
 //Global variables for managing zones
 int zones_enrolled_count = MAX_ZONE_COUNT;
@@ -69,23 +78,37 @@ int max_zone_id_enrolled = MAX_ZONE_COUNT;
 #define ALARM_STATE_CHANGE 0
 #define ZONE_STATE_CHANGE 1
 
+//Lets set up MQTT in case it is used/needed
+WiFiClient wifiClient;
+PubSubClient mqtt(wifiClient);
+bool mqtt_setup = false;
+bool mqtt_setup_correct = false;
+bool mqtt_connection_fail = false;
+
+
 void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsigned char zoneID, int zone_or_system_update) {
   char message_text[600];
-  message_text[0] = '\0';
 
   //Convert zone ID to text
   char zoneIDtext[10];
   itoa(zoneID, zoneIDtext, 10);
 
   DEBUG(LOG_NOTICE,"Creating JSON string");
-  //Build key JSON headers and structure
-  strncpy(message_text, "POST / HTTP/1.1\r\nHost: ", 600);
-  strcat(message_text, IP_FOR_ST);
-  strcat(message_text, ":");
-  strcat(message_text, PORT_FOR_ST);
-  strcat(message_text, "\r\nContent-Type: application/json;charset=utf-8\r\nServer: Visonic Alarm\r\nConnection: close\r\n\r\n");
-  //strncpy(message_text, " ", 500);
   
+  if (!mqtt_setup_correct) {
+    //We have no MQTT details so lets send to HTTP and hence start with headers
+    strncpy(message_text, "POST / HTTP/1.1\r\nHost: ", 600);
+    strcat(message_text, IP_FOR_ST);
+    strcat(message_text, ":");
+    strcat(message_text, PORT_FOR_ST);
+    strcat(message_text, "\r\nContent-Type: application/json;charset=utf-8\r\nServer: Visonic Alarm\r\nConnection: close\r\n\r\n");
+  }
+  else {
+    //We have MQTT details so start with a blank string
+    message_text[0] = '\0';
+  }
+  
+  //Now build key JSON structure
   if (zone_or_system_update == ALARM_STATE_CHANGE) {
     //Here we have an alarm status change (zone 0) so put the status into JSON
     strcat(message_text, "{\"stat_str\": \"");
@@ -104,21 +127,62 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
     strcat(message_text, WhoOrState);
     strcat(message_text, "\"");
   }
+
+  //If MQTT, then add the retain flag for simplicity
+  if (mqtt_setup_correct) {
+    //strcat(message_text, ",\r\n\"retain\": true\"");
+  }
+  
   //Close the JSON string
   strcat(message_text, "}\r\n");
 
   //Useful debug log below, but slows things down so disabled when not needed
   //DEBUG(LOG_NOTICE, message_text);
 
-  //If not connected (we shouldnt be) then connect to ST
-  WiFiClient client;
-  if (!client.connect(IP_FOR_ST, atoi(PORT_FOR_ST))) {
-    Serial.println("connection failed");
-    return;
+  //Here we should work out which protocol we should use to send the info
+  if (!mqtt_setup_correct) {
+    //No MQTT details means we should use http for sending the data rather than MQTT 
+    WiFiClient client;
+    if (!client.connect(IP_FOR_ST, atoi(PORT_FOR_ST))) {
+      //Serial.println("connection failed");
+      return;
+    }
+    //Send the JSON to web port
+    client.print(message_text);
   }
+  else {
+    //Here we have MQTT setup, so lets send data via MQTT
+    char topic[25];
+    topic[0] = '\0';
+    if (zone_or_system_update == ALARM_STATE_CHANGE) {
+      strcat(topic, "alarm/panel");
+    }
+    else {
+      strcat(topic, "alarm/zone");
+      strcat(topic, zoneIDtext);
+    }
+    mqtt.publish(topic, message_text);
+  }
+}
 
-  //Finally send the JSON to ST
-  client.print(message_text);
+void mqttcallback(char* topic, byte* payload, unsigned int length) {
+  //Got a message printed by another device, so check whether it is an arm/disarm command
+  if (strcmp(topic, "alarm/set")==0) {
+  //if (topic == "alarm/set") {
+    char message[51];
+    int maxlength = 50;
+    if (length < 50) {maxlength = length;}
+    for (int i = 0; i < maxlength; i++) {
+      message[i] = (char)payload[i];
+      message[i+1] = '\0';
+      //Serial.print((char)payload[i]);
+    }
+    if (strcmp(message,"disarm")==0) handleDisarm();
+    if (strcmp(message,"armaway")==0) handleArmAway();
+    if (strcmp(message,"armhome")==0) handleArmHome();
+    if (strcmp(message,"armawayinstant")==0) handleArmAwayInstant();
+    if (strcmp(message,"armhomeinstant")==0) handleArmHomeInstant();
+  }
 }
 
 void ReadEEPROMSettings() {
@@ -141,16 +205,41 @@ void ReadEEPROMSettings() {
     for(int ix=0; ix < sizeof(STATIC_SUBNET); ix++) {
        STATIC_SUBNET[ix] = EEPROM.read(EEPROM_STATIC_SUBNET_LOC + ix);
     }
+
+    for(int ix=0; ix < sizeof(MQTT_USERNAME); ix++) {
+       MQTT_USERNAME[ix] = EEPROM.read(EEPROM_MQTT_USERNAME_LOC + ix);
+    }
+
+    for(int ix=0; ix < sizeof(MQTT_PASSWORD); ix++) {
+       MQTT_PASSWORD[ix] = EEPROM.read(EEPROM_MQTT_PASSWORD_LOC + ix);
+    }
 }
 
 void WriteEEPROMSettings() {
     for(int ix=0; ix < sizeof(IP_FOR_ST); ix++) {
         EEPROM.write(EEPROM_IP_ADDR_LOC + ix, IP_FOR_ST[ix]);
     }
-
     for(int ix=0; ix < sizeof(PORT_FOR_ST); ix++) {
         EEPROM.write(EEPROM_PORT_ADDR_LOC + ix, PORT_FOR_ST[ix]);
     }
+
+    for(int ix=0; ix < sizeof(STATIC_IP); ix++) {
+        EEPROM.write(EEPROM_STATIC_IP_LOC + ix, STATIC_IP[ix]);
+    }
+    for(int ix=0; ix < sizeof(STATIC_GATEWAY); ix++) {
+        EEPROM.write(EEPROM_STATIC_GATEWAY_LOC + ix, STATIC_GATEWAY[ix]);
+    }
+    for(int ix=0; ix < sizeof(STATIC_SUBNET); ix++) {
+        EEPROM.write(EEPROM_STATIC_SUBNET_LOC + ix, STATIC_SUBNET[ix]);
+    }
+    
+    for(int ix=0; ix < sizeof(MQTT_USERNAME); ix++) {
+        EEPROM.write(EEPROM_MQTT_USERNAME_LOC + ix, MQTT_USERNAME[ix]);
+    }
+    for(int ix=0; ix < sizeof(MQTT_PASSWORD); ix++) {
+        EEPROM.write(EEPROM_MQTT_PASSWORD_LOC + ix, MQTT_PASSWORD[ix]);
+    }
+    
     EEPROM.commit();
 }
 
@@ -270,6 +359,7 @@ MyPowerMax pm;
 ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
 
+//Now continue with other (more important) things!
 int telnetDbgLevel = LOG_NO_FILTER; //by default only NO FILTER messages are logged to telnet clients 
 
 #ifdef PM_ENABLE_LAN_BROADCAST
@@ -331,10 +421,10 @@ void handleRoot() {
                 "<a href='/alarm' target='_blank'>Sound the Alarm Options</a><br><br>"
                 "JSON Endpoints<br>"
                 "<a href='/status'>Alarm Status</a><br>"
-                "<a href='/settings'>Smart Things Details</a><br>"
+                "<a href='/settings'>Get Saved IP/port Details</a><br>"
                 "<a href='/getzonenames'>Get Zone Names</a><br><br>"
                 "Configuration<br>"
-                "<a href='/config'>inactivity_seconds, ip_for_st, port_for_st</a><br>"
+                "<a href='/config'>?X=Y - inactivity_seconds, ip_for_st, port_for_st, mqtt_username, mqtt_password</a><br>"
                 "<a href='/update'>Update Firmware</a>"
                 "</html>",
                 mac[0],mac[1],mac[2],mac[3],mac[4],mac[5],
@@ -431,8 +521,12 @@ void handleSettings() {
   client.print(PORT_FOR_ST);
   client.print(",\r\n\"inactivity_seconds\":");
   client.print((inactivity_seconds));
+  client.print(",\r\n\"mqtt_username\":\"");
+  client.print((MQTT_USERNAME));
+  client.print("\",\r\n\"mqtt_password\":\"");
+  client.print((MQTT_PASSWORD));
   
-  client.print(",\r\n\"neohub_relay_firmware_date\":\"");
+  client.print("\",\r\n\"firmware_date\":\"");
   client.print(Firmware_Date);
   client.print(" - ");
   client.print(Firmware_Time);
@@ -513,11 +607,10 @@ void handleConfig() {
       client.print(server.arg("ip_for_st").c_str());
       client.print("\",\r\n");
   }
-
   //If we have received an ST Port then update as needed
   if (server.hasArg("port_for_st")) {
       //Check if it has changed before writing to EEPROM
-      if (server.arg("port_for_st") != PORT_FOR_ST) { 
+      if (server.arg("port_for_st") != PORT_FOR_ST) {
           server.arg("port_for_st").toCharArray(PORT_FOR_ST, sizeof(PORT_FOR_ST));
           updateEEPROM = true;
       }
@@ -526,9 +619,77 @@ void handleConfig() {
       client.print(server.arg("port_for_st").c_str());
       client.print("\",\r\n");
   }
+  
+  //If we have received an Static IP then update as needed
+  if (server.hasArg("static_ip")) {
+      //Check if it has changed before writing to EEPROM
+      if (server.arg("static_ip") != STATIC_IP) {
+          server.arg("static_ip").toCharArray(STATIC_IP, sizeof(STATIC_IP));
+          updateEEPROM = true;
+      }
+      //Respond with current value, even if not needing an update
+      client.print("\"static_ip\":\"");
+      client.print(server.arg("static_ip").c_str());
+      client.print("\",\r\n");
+  }
+  //If we have received an Static Gateway then update as needed
+  if (server.hasArg("static_gateway")) {
+      //Check if it has changed before writing to EEPROM
+      if (server.arg("static_gateway") != STATIC_GATEWAY) {
+          server.arg("static_gateway").toCharArray(STATIC_GATEWAY, sizeof(STATIC_GATEWAY));
+          updateEEPROM = true;
+      }
+      //Respond with current value, even if not needing an update
+      client.print("\"static_gateway\":\"");
+      client.print(server.arg("static_gateway").c_str());
+      client.print("\",\r\n");
+  }
+  //If we have received an Static Subnet then update as needed
+  if (server.hasArg("static_subnet")) {
+      //Check if it has changed before writing to EEPROM
+      if (server.arg("static_subnet") != STATIC_SUBNET) {
+          server.arg("static_subnet").toCharArray(STATIC_SUBNET, sizeof(STATIC_SUBNET));
+          updateEEPROM = true;
+      }
+      //Respond with current value, even if not needing an update
+      client.print("\"static_subnet\":\"");
+      client.print(server.arg("static_subnet").c_str());
+      client.print("\",\r\n");
+  }
+  
+  //If we have received an MQTT Username then update as needed - and log that it needs connecting
+  if (server.hasArg("mqtt_username")) {
+      //Check if it has changed before writing to EEPROM
+      if (server.arg("mqtt_username") != MQTT_USERNAME) {
+          server.arg("mqtt_username").toCharArray(MQTT_USERNAME, sizeof(MQTT_USERNAME));
+          updateEEPROM = true;
+          mqtt_setup_correct = false;
+      }
+      //Respond with current value, even if not needing an update
+      client.print("\"mqtt_username\":\"");
+      client.print(server.arg("mqtt_username").c_str());
+      client.print("\",\r\n");
+  }
+  //If we have received an MQTT Username then update as needed - and log that it needs connecting
+  if (server.hasArg("mqtt_password")) {
+      //Check if it has changed before writing to EEPROM
+      if (server.arg("mqtt_password") != MQTT_PASSWORD) {
+          server.arg("mqtt_password").toCharArray(MQTT_PASSWORD, sizeof(MQTT_PASSWORD));
+          updateEEPROM = true;
+          mqtt_setup_correct = false;
+      }
+      //Respond with current value, even if not needing an update
+      client.print("\"mqtt_password\":\"");
+      client.print(server.arg("mqtt_password").c_str());
+      client.print("\",\r\n");
+  }
+  
 
   client.print("}\r\n");
   client.stop();
+
+  //We have tried to do another config, so lets reset mqtt in case this time it connects
+  mqtt_connection_fail = false;
 
   //Now save the values to EEPROM if updated values received
   if (updateEEPROM) {
@@ -659,6 +820,7 @@ void handleTest() {
   }
 }
 
+
 void setup(void){
 
   //First lets make a few common output pins as high just to prevent accidental triggering of the alarm
@@ -668,21 +830,23 @@ void setup(void){
   digitalWrite(14, HIGH);
   digitalWrite(0, HIGH);
 
-  Serial.begin(9600); //connect to PowerMax interface
-
   //Add the EEPROM in order to save values for ST and immediately read IP and port for SmartThings
   EEPROM.begin(512);
   ReadEEPROMSettings();
 
-  /*
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-  // Wait for connection
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
+  //Now zero the settings if they are 255 which is probably null/unset (byte 255 != 255 figure)
+  if (IP_FOR_ST[0] == 255) {
+    IP_FOR_ST[0] = '\0';
   }
-  */
+  if (PORT_FOR_ST[0] == 255) {
+    PORT_FOR_ST[0] = '\0';
+  }
+  if (MQTT_USERNAME[0] == 255) {
+    MQTT_USERNAME[0] = '\0';
+  }
+  if (MQTT_PASSWORD[0] == 255) {
+    MQTT_PASSWORD[0] = '\0';
+  }
 
   
   //WiFiManager
@@ -700,7 +864,7 @@ void setup(void){
   //if it does not connect it starts an access point with the specified name
   //and goes into a blocking loop awaiting configuration
   if(!wifiManager.autoConnect("VisonicPowermaxBridge")) {
-      Serial.println("failed to connect and hit timeout");
+      //Serial.println("failed to connect and hit timeout");
       delay(3000);
       //reset and try again, or maybe put it to deep sleep
       ESP.reset();
@@ -716,18 +880,30 @@ void setup(void){
   //wifiManager.setSTAStaticIPConfig(_ip, _gw, _sn);
   // Can use WiFi.disconnect(); to reset credentials and wifi
   
+  //Now setup variables for use in SSDP/mDNS
+  char macstring[16];
+  byte mac[6];
+  WiFi.macAddress(mac);
+  sprintf(macstring, "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  
   // Set up mDNS responder:
   // - first argument is the domain name, in this example
   //   the fully-qualified domain name is "esp8266.local"
   // - second argument is the IP address to advertise
   //   we send our IP address on the WiFi network
-  if (!MDNS.begin("esp8266-PowermaxBridge")) {
-    Serial.println("Error setting up MDNS responder!");
+  char mdnsname[30] = "espPowermaxBridge";
+  mdnsname[strlen(mdnsname)] = macstring[9];
+  mdnsname[strlen(mdnsname)] = macstring[10];
+  mdnsname[strlen(mdnsname)] = macstring[11];
+  mdnsname[strlen(mdnsname)] = macstring[12];
+  mdnsname[strlen(mdnsname)] = '\0';
+  if (!MDNS.begin(mdnsname)) {
+    //Serial.println("Error setting up MDNS responder!");
     while(1) { 
       delay(1000);
     }
   }
-
+  
   server.on("/", handleRoot);
   server.on("/status", handleStatus);
   server.on("/settings", handleSettings);
@@ -766,21 +942,19 @@ void setup(void){
     SSDP.schema(server.client());
   });
 
-#ifdef PM_ENABLE_OTA_UPDATES
+#ifdef PM_ENABLE_WEB_UPDATES
     //Link the HTTP Updater with the web sesrver
     httpUpdater.setup(&server);
+#endif
+#ifdef PM_ENABLE_OTA_UPDATES
+    //Prepare to receive OTA firmware updates (i.e. from within Arduino Studio)
     ArduinoOTA.begin();
 #endif
 
   server.onNotFound(handleNotFound);
   server.begin();
 
-  //Now setup variables for use in SSDP section
-  char macstring[16];
-  byte mac[6];
-  WiFi.macAddress(mac);
-  sprintf(macstring, "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-
+  
   //Now initialise SSDP
   SSDP.setSchemaURL("description.xml");
   SSDP.setHTTPPort(80);
@@ -797,6 +971,12 @@ void setup(void){
 
   // Add service to MDNS-SD
   MDNS.addService("http", "tcp", 80);
+
+  //We set up serial at the end of the sketch as connecting to WiFi after Serial is running can cause crashes
+  Serial.begin(9600); //open serial ready to connect to PowerMax interface
+  //New serial1 code - it will work as TX only on D8 (pin13)
+  Serial1.begin(57600);
+  //Serial1.setDebugOutput(true);
 
 #ifdef PM_ENABLE_TELNET_ACCESS
   telnetServer.begin();
@@ -1028,6 +1208,15 @@ bool serialHandler(PowerMaxAlarm* pm) {
           broadcastPacketOnLan(&commandBuffer, true);
 #endif
 
+          //New serial1 code
+          Serial1.print("Read1: ");
+          for (int ix = 0; ix < commandBuffer.size; ix++) {
+            if ((int)commandBuffer.buffer[ix] < 16) Serial1.print("0");
+            Serial1.print(commandBuffer.buffer[ix], HEX);
+            Serial1.print(" ");
+          }
+          Serial1.println("");
+    
           packetHandled = true;
           pm->handlePacket(&commandBuffer);
           commandBuffer.size = 0;
@@ -1046,6 +1235,15 @@ bool serialHandler(PowerMaxAlarm* pm) {
 #ifdef PM_ENABLE_LAN_BROADCAST
     broadcastPacketOnLan(&commandBuffer, false);
 #endif
+
+    //New serial1 code
+    Serial1.print("Read2: ");
+    for (int ix = 0; ix < commandBuffer.size; ix++) {
+      if ((int)commandBuffer.buffer[ix] < 16) Serial1.print("0");
+      Serial1.print(commandBuffer.buffer[ix], HEX);
+      Serial1.print(" ");
+    }
+    Serial1.println("");
     
     packetHandled = true;
     //this will be an invalid packet:
@@ -1057,6 +1255,7 @@ bool serialHandler(PowerMaxAlarm* pm) {
 }
 
 void loop(void){
+
 #ifdef PM_ENABLE_OTA_UPDATES
   ArduinoOTA.handle();
 #endif
@@ -1065,6 +1264,38 @@ void loop(void){
 
   //Here we also check if we need to send any inactivity messages to ST
   pm.CheckInactivityTimers();
+
+  
+  if ((MQTT_USERNAME != "") && (MQTT_PASSWORD != "")) {
+    //If we get here then somebody has saved an MQTT server, so lets setup the right variables to talk to it!
+
+    if (!mqtt_setup) {
+      //MQTT not yet fully initialised, so initialise
+      mqtt_setup = true;
+      mqtt.setCallback(mqttcallback);
+    }
+    if (!mqtt_setup_correct) {
+      //MQTT initialised, but not with correct IP/port, or disconnected, so fix that!
+      if (!mqtt_connection_fail) {
+        mqtt.setServer(IP_FOR_ST, atoi(PORT_FOR_ST));
+        if (!mqtt.connected()) {
+          if (mqtt.connect("ESP8266Client", MQTT_USERNAME, MQTT_PASSWORD )) {
+            //Woop woop, we connected. Ensure we dont keep trying and subscribe to the set control
+            mqtt_setup_correct = true;
+            mqtt_connection_fail = false;
+            mqtt.subscribe("alarm/set");
+          } else {
+            //Hmm, failed, not much we can do here as no serial to output to - could reset details but not good while testing
+            mqtt_connection_fail = true;
+          }
+        }
+      }
+    }
+    //This loop part is where we will actually process anything posted there by another device
+    if (mqtt_setup_correct && !mqtt_connection_fail) {
+      mqtt.loop();
+    }
+  }
 
   //Here we reset manual pin timers in case they are running (i.e. output relay pin is on)
   if (userPinResetTime > 0) {
@@ -1196,6 +1427,22 @@ int os_pmComPortRead(void* readBuff, int bytesToRead)
 int os_pmComPortWrite(const void* dataToWrite, int bytesToWrite)
 {
     Serial.write((const uint8_t*)dataToWrite, bytesToWrite);
+    
+    //New serial1 code
+    Serial1.print("Writing: ");
+    const uint8_t *tempcharpointer;
+    tempcharpointer = (uint8_t *) dataToWrite;
+    for (int ix = 0; ix < bytesToWrite; ix++) {
+      if ((int)tempcharpointer[ix] < 16) Serial1.print("0");
+      Serial1.print(tempcharpointer[ix], HEX);
+      Serial1.print(" ");
+    }
+    Serial1.println("");
+    
+    //New serial1 code
+    //Serial1.print("Writing: ");
+    //Serial1.write((const uint8_t*)dataToWrite, bytesToWrite);
+    
     return bytesToWrite;
 }
 
