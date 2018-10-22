@@ -71,7 +71,7 @@ metadata
         input name: "prename", type: "string", title:"Add before zone name", description: "e.g. 'Zone' would give 'Zone Kitchen'", required: false, displayDuringSetup: true
         input name: "postname", type: "string", title:"Add after zone name", description: "e.g. 'Zone' would give 'Kitchen Zone'", required: false, displayDuringSetup: true
         input name: "inactivityseconds", type: "string", title:"Motion sensor inactivity timeout", description: "override the default of 20s (60s max)", required: false, displayDuringSetup: false
-        input name: "password", type: "password", title:"Password", required:false, displayDuringSetup:false
+        input name: "password", type: "password", title:"Password for wemos (leave blank)", required:false, displayDuringSetup:false
 	}
 
 	tiles (scale: 2)
@@ -301,7 +301,7 @@ def ZoneTestFunction()
 	catch (e)
 	{
 		log.error "Couldnt find device, probably doesn't exist so safe to add a new one: ${e}"
-		addChildDevice("smartthings", "Motion Detector", "alarmchildzonetest", hub.id, [name: "alarm zone test device", label: "Alarm Zone Test Device", completedSetup: true]) //cjcharles0, Alarm Motion Zone
+		addChildDevice("Motion Detector", "alarmchildzonetest", [name: "alarm zone test device", isComponent: false])
 	}
 }
 
