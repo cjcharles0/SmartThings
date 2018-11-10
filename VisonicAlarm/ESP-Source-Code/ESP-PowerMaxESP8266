@@ -8,7 +8,6 @@
 #include <ESP8266SSDP.h>
 #include <ESP8266mDNS.h>
 #include <ArduinoOTA.h>
-#include <EEPROM.h>
 
 #include <PubSubClient.h>
 
@@ -36,40 +35,60 @@ IPAddress PM_LAN_BROADCAST_IP(192, 168, 32, 12);
 #define   PM_LAN_BROADCAST_PORT  23127
 
 
+#define FLASH_EEPROM_SIZE 4096
+extern "C" {
+#include "spi_flash.h"
+}
+extern "C" uint32_t _SPIFFS_start;
+extern "C" uint32_t _SPIFFS_end;
+extern "C" uint32_t _SPIFFS_page;
+extern "C" uint32_t _SPIFFS_block;
+#define DEFAULT_HAIP                   "0.0.0.0"
+#define DEFAULT_HAPORT                 39500
+#define DEFAULT_USE_PASS               false
+#define DEFAULT_UI_PASS                ""
+#define DEFAULT_USE_STATIC             false
+#define DEFAULT_IP                     "0.0.0.0"
+#define DEFAULT_GATEWAY                "0.0.0.0"
+#define DEFAULT_SUBNET                 "0.0.0.0"
+#define DEFAULT_USE_MQTT               false
+#define DEFAULT_MQTT_USER              ""
+#define DEFAULT_MQTT_PASS              ""
+#define DEFAULT_AP_WHEN_NO_WIFI        true
+#define DEFAULT_RESET_COUNTER          0
+#define RESET_LIMIT                    5
 
-//CHANGE THESE SETTINGS
-//Specify your WIFI settings:
-//#define WIFI_SSID "SSIDHere"
-//#define WIFI_PASS "PSKHere"
+struct SettingsStruct
+{
+  byte          haIP[4];
+  unsigned int  haPort;
+  boolean       usePassword;
+  char          UIPassword[26];
+  boolean       useStatic;
+  byte          IP[4];
+  byte          Gateway[4];
+  byte          Subnet[4];
+  bool          useMQTT;
+  char          MQTTUser[26];
+  char          MQTTPass[26];
+  boolean       APWhenNoWiFi;
+  byte          resetCounter;
+  byte          settingsVersion;
+} Settings;
+
+
+//Useful defines
 #define Firmware_Date __DATE__
 #define Firmware_Time __TIME__
-
 #define JsonHeaderText "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n"
 
-//Default values for SmartThings, these are only used when first booting and stored in EEPROM from first boot onwards, no need to change
-char IP_FOR_ST[27];
-char PORT_FOR_ST[7];
-char STATIC_IP[17];
-char STATIC_GATEWAY[17];
-char STATIC_SUBNET[17];
-char MQTT_USERNAME[20];
-char MQTT_PASSWORD[20];
-
-//Inactivity timer wil always default to this value on boot (it is not stored in EEPROM at the moment)
+//Inactivity timer wil always default to this value on boot (it is not stored at the moment)
 //This will reset when the Wemos power cycles (mainly because the Powermax does))
 int inactivity_seconds = 20;
 //These define the pins used for triggering alarms (or something else!) and the timer to turn them off
 int activatedPinA = -1;
 int activatedPinB = -1;
 unsigned long userPinResetTime = 0;
-
-#define EEPROM_IP_ADDR_LOC 100
-#define EEPROM_PORT_ADDR_LOC 130
-#define EEPROM_STATIC_IP_LOC 140
-#define EEPROM_STATIC_GATEWAY_LOC 160
-#define EEPROM_STATIC_SUBNET_LOC 180
-#define EEPROM_MQTT_USERNAME_LOC 200
-#define EEPROM_MQTT_PASSWORD_LOC 230
 
 //Global variables for managing zones
 int zones_enrolled_count = MAX_ZONE_COUNT;
@@ -85,12 +104,123 @@ bool mqtt_setup = false;
 bool mqtt_setup_correct = false;
 bool mqtt_connection_fail = false;
 
+//These functions will load our Settings struct into memory or read it back
+void SaveSettings(void)
+{
+  SaveToFlash(0, (byte*)&Settings, sizeof(struct SettingsStruct));
+}
+boolean LoadSettings()
+{
+  LoadFromFlash(0, (byte*)&Settings, sizeof(struct SettingsStruct));
+}
+void SaveToFlash(int index, byte* memAddress, int datasize)
+{
+  if (index > 33791) // Limit usable flash area to 32+1k size
+  {
+    return;
+  }
+  uint32_t _sector = ((uint32_t)&_SPIFFS_start - 0x40200000) / SPI_FLASH_SEC_SIZE;
+  uint8_t* data = new uint8_t[FLASH_EEPROM_SIZE];
+  int sectorOffset = index / SPI_FLASH_SEC_SIZE;
+  int sectorIndex = index % SPI_FLASH_SEC_SIZE;
+  uint8_t* dataIndex = data + sectorIndex;
+  _sector += sectorOffset;
+
+  // load entire sector from flash into memory
+  noInterrupts();
+  spi_flash_read(_sector * SPI_FLASH_SEC_SIZE, reinterpret_cast<uint32_t*>(data), FLASH_EEPROM_SIZE);
+  interrupts();
+
+  // store struct into this block
+  memcpy(dataIndex, memAddress, datasize);
+
+  noInterrupts();
+  // write sector back to flash
+  if (spi_flash_erase_sector(_sector) == SPI_FLASH_RESULT_OK)
+  if (spi_flash_write(_sector * SPI_FLASH_SEC_SIZE, reinterpret_cast<uint32_t*>(data), FLASH_EEPROM_SIZE) == SPI_FLASH_RESULT_OK)
+  {
+    //Serial.println("flash save ok");
+  }
+  interrupts();
+  delete [] data;
+  //String log = F("FLASH: Settings saved");
+  //addLog(LOG_LEVEL_INFO, log);
+}
+void LoadFromFlash(int index, byte* memAddress, int datasize)
+{
+  uint32_t _sector = ((uint32_t)&_SPIFFS_start - 0x40200000) / SPI_FLASH_SEC_SIZE;
+  uint8_t* data = new uint8_t[FLASH_EEPROM_SIZE];
+  int sectorOffset = index / SPI_FLASH_SEC_SIZE;
+  int sectorIndex = index % SPI_FLASH_SEC_SIZE;
+  uint8_t* dataIndex = data + sectorIndex;
+  _sector += sectorOffset;
+
+  // load entire sector from flash into memory
+  noInterrupts();
+  spi_flash_read(_sector * SPI_FLASH_SEC_SIZE, reinterpret_cast<uint32_t*>(data), FLASH_EEPROM_SIZE);
+  interrupts();
+
+  // load struct from this block
+  memcpy(memAddress, dataIndex, datasize);
+  delete [] data;
+}
+void EraseFlash()
+{
+  uint32_t _sectorStart = (ESP.getSketchSize() / SPI_FLASH_SEC_SIZE) + 1;
+  uint32_t _sectorEnd = _sectorStart + (ESP.getFlashChipRealSize() / SPI_FLASH_SEC_SIZE);
+
+  for (uint32_t _sector = _sectorStart; _sector < _sectorEnd; _sector++)
+  {
+    noInterrupts();
+    if (spi_flash_erase_sector(_sector) == SPI_FLASH_RESULT_OK)
+    {
+      interrupts();
+      Serial.print(F("FLASH: Erase Sector: "));
+      Serial.println(_sector);
+      delay(10);
+    }
+    interrupts();
+  }
+}
+boolean str2ip(char *string, byte* IP)
+{
+  byte c;
+  byte part = 0;
+  int value = 0;
+
+  for (int x = 0; x <= strlen(string); x++)
+  {
+    c = string[x];
+    if (isdigit(c))
+    {
+      value *= 10;
+      value += c - '0';
+    }
+
+    else if (c == '.' || c == 0) // next octet from IP address
+    {
+      if (value <= 255)
+      IP[part++] = value;
+      else
+      return false;
+      value = 0;
+    }
+    else if (c == ' ') // ignore these
+    ;
+    else // invalid token
+    return false;
+  }
+  if (part == 4) // correct number of octets
+  return true;
+  return false;
+}
 
 void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsigned char zoneID, int zone_or_system_update) {
   char message_text[600];
 
   //Convert zone ID to text
   char zoneIDtext[10];
+  char tempstring[26];
   itoa(zoneID, zoneIDtext, 10);
 
   DEBUG(LOG_NOTICE,"Creating JSON string");
@@ -98,9 +228,11 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
   if (!mqtt_setup_correct) {
     //We have no MQTT details so lets send to HTTP and hence start with headers
     strncpy(message_text, "POST / HTTP/1.1\r\nHost: ", 600);
-    strcat(message_text, IP_FOR_ST);
+    sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
+    strcat(message_text, tempstring);
     strcat(message_text, ":");
-    strcat(message_text, PORT_FOR_ST);
+    itoa(Settings.haPort, tempstring, 10);
+    strcat(message_text, tempstring);
     strcat(message_text, "\r\nContent-Type: application/json;charset=utf-8\r\nServer: Visonic Alarm\r\nConnection: close\r\n\r\n");
   }
   else {
@@ -143,7 +275,9 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
   if (!mqtt_setup_correct) {
     //No MQTT details means we should use http for sending the data rather than MQTT 
     WiFiClient client;
-    if (!client.connect(IP_FOR_ST, atoi(PORT_FOR_ST))) {
+    char tempstring[26];
+    sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
+    if (!client.connect(tempstring, Settings.haPort)) {
       //Serial.println("connection failed");
       return;
     }
@@ -183,64 +317,6 @@ void mqttcallback(char* topic, byte* payload, unsigned int length) {
     if (strcmp(message,"armawayinstant")==0) handleArmAwayInstant();
     if (strcmp(message,"armhomeinstant")==0) handleArmHomeInstant();
   }
-}
-
-void ReadEEPROMSettings() {
-    for(int ix=0; ix < sizeof(IP_FOR_ST); ix++) {
-       IP_FOR_ST[ix] = EEPROM.read(EEPROM_IP_ADDR_LOC + ix);
-    }
-
-    for(int ix=0; ix < sizeof(PORT_FOR_ST); ix++) {
-       PORT_FOR_ST[ix] = EEPROM.read(EEPROM_PORT_ADDR_LOC + ix);
-    }
-    
-    for(int ix=0; ix < sizeof(STATIC_IP); ix++) {
-       STATIC_IP[ix] = EEPROM.read(EEPROM_STATIC_IP_LOC + ix);
-    }
-
-    for(int ix=0; ix < sizeof(STATIC_GATEWAY); ix++) {
-       STATIC_GATEWAY[ix] = EEPROM.read(EEPROM_STATIC_GATEWAY_LOC + ix);
-    }
-
-    for(int ix=0; ix < sizeof(STATIC_SUBNET); ix++) {
-       STATIC_SUBNET[ix] = EEPROM.read(EEPROM_STATIC_SUBNET_LOC + ix);
-    }
-
-    for(int ix=0; ix < sizeof(MQTT_USERNAME); ix++) {
-       MQTT_USERNAME[ix] = EEPROM.read(EEPROM_MQTT_USERNAME_LOC + ix);
-    }
-
-    for(int ix=0; ix < sizeof(MQTT_PASSWORD); ix++) {
-       MQTT_PASSWORD[ix] = EEPROM.read(EEPROM_MQTT_PASSWORD_LOC + ix);
-    }
-}
-
-void WriteEEPROMSettings() {
-    for(int ix=0; ix < sizeof(IP_FOR_ST); ix++) {
-        EEPROM.write(EEPROM_IP_ADDR_LOC + ix, IP_FOR_ST[ix]);
-    }
-    for(int ix=0; ix < sizeof(PORT_FOR_ST); ix++) {
-        EEPROM.write(EEPROM_PORT_ADDR_LOC + ix, PORT_FOR_ST[ix]);
-    }
-
-    for(int ix=0; ix < sizeof(STATIC_IP); ix++) {
-        EEPROM.write(EEPROM_STATIC_IP_LOC + ix, STATIC_IP[ix]);
-    }
-    for(int ix=0; ix < sizeof(STATIC_GATEWAY); ix++) {
-        EEPROM.write(EEPROM_STATIC_GATEWAY_LOC + ix, STATIC_GATEWAY[ix]);
-    }
-    for(int ix=0; ix < sizeof(STATIC_SUBNET); ix++) {
-        EEPROM.write(EEPROM_STATIC_SUBNET_LOC + ix, STATIC_SUBNET[ix]);
-    }
-    
-    for(int ix=0; ix < sizeof(MQTT_USERNAME); ix++) {
-        EEPROM.write(EEPROM_MQTT_USERNAME_LOC + ix, MQTT_USERNAME[ix]);
-    }
-    for(int ix=0; ix < sizeof(MQTT_PASSWORD); ix++) {
-        EEPROM.write(EEPROM_MQTT_PASSWORD_LOC + ix, MQTT_PASSWORD[ix]);
-    }
-    
-    EEPROM.commit();
 }
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -390,6 +466,10 @@ void LOG(const char *format, ...)
 }
 
 void handleRoot() {
+   if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+      if (!server.authenticate("admin", Settings.UIPassword))
+      return server.requestAuthentication();
+   }
   //This returns the 'homepage' with links to each other main page
   unsigned long days = 0, hours = 0, minutes = 0;
   unsigned long val = os_getCurrentTimeSec();
@@ -424,6 +504,8 @@ void handleRoot() {
                 "<a href='/settings'>Get Saved IP/port Details</a><br>"
                 "<a href='/getzonenames'>Get Zone Names</a><br><br>"
                 "Configuration<br>"
+                "<a href='/advanced'>Configure Settings</a><br>"
+                "<a href='/reboot'>Reboot device (soft reset is not as reliable as a power cycle)</a><br>"
                 "<a href='/config'>?X=Y - inactivity_seconds, ip_for_st, port_for_st, mqtt_username, mqtt_password</a><br>"
                 "<a href='/update'>Update Firmware</a>"
                 "</html>",
@@ -479,6 +561,10 @@ public:
 };
 
 void handleStatus() {
+   if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+      if (!server.authenticate("admin", Settings.UIPassword))
+      return server.requestAuthentication();
+   }
   //This sends full system status including status/panel PIN codes/zones/... etc
   
   //First update zone count to reduce checking on unused zones (not actually needed in this function but called often so a good place to put it)
@@ -497,6 +583,10 @@ void handleStatus() {
 }
 
 void handleRefresh() {
+   if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+      if (!server.authenticate("admin", Settings.UIPassword))
+      return server.requestAuthentication();
+   }
   //This returns the current arm state in case it gets out of sync somehow
   WiFiClient client = server.client();
   
@@ -511,20 +601,27 @@ void handleRefresh() {
 }
 
 void handleSettings() {
+   if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+      if (!server.authenticate("admin", Settings.UIPassword))
+      return server.requestAuthentication();
+   }
   //This returns the current arm state in case it gets out of sync somehow
+  char tempstring[26];
   WiFiClient client = server.client();
   
   client.print(JsonHeaderText);
   client.print("{\"ip_for_st\":\"");
-  client.print(IP_FOR_ST);
+  sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
+  client.print(tempstring);
   client.print("\",\r\n\"port_for_st\":");
-  client.print(PORT_FOR_ST);
+  itoa(Settings.haPort, tempstring, 10);
+  client.print(tempstring);
   client.print(",\r\n\"inactivity_seconds\":");
   client.print((inactivity_seconds));
   client.print(",\r\n\"mqtt_username\":\"");
-  client.print((MQTT_USERNAME));
+  client.print((Settings.MQTTUser));
   client.print("\",\r\n\"mqtt_password\":\"");
-  client.print((MQTT_PASSWORD));
+  client.print((Settings.MQTTPass));
   
   client.print("\",\r\n\"firmware_date\":\"");
   client.print(Firmware_Date);
@@ -536,8 +633,13 @@ void handleSettings() {
 }
 
 void handleGetZoneNames() {
+   if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+      if (!server.authenticate("admin", Settings.UIPassword))
+      return server.requestAuthentication();
+   }
   //This returns all zone names and types
   int sizeofoutputstring = 170;
+  int number_of_zones = 0;
   char outputstring[sizeofoutputstring+1]; //Used to store the output for each zone to speed output
   char currentzonename[70]; //Max zone name of 70 bytes hence copy in one less to ensure an ending
   char numberasstring[5];
@@ -561,16 +663,21 @@ void handleGetZoneNames() {
   for(int ix=1; ix<=max_zone_id_enrolled; ix++) {
      strncpy(currentzonename, pm.getZoneName(ix), 69);
      if (currentzonename != "Unknown") {
-        //It isnt unknown so create an output text that we can send back to the client
-        strncpy(outputstring, "{\"zoneid\":", sizeofoutputstring);
+        //It isnt unknown so create an output text that we can send back to the client, start by 'emptying' the char array
+        outputstring[0] = '\0';
+        //Add a comma if we have already got one entry
+        if (number_of_zones > 0) { strncat(outputstring, ",", _max(0,sizeofoutputstring-strlen(outputstring)));}
+        //Now fill the remaining information about zone id/name/type
+        strncat(outputstring, "{\"zoneid\":", _max(0,sizeofoutputstring-strlen(outputstring)));
         itoa(ix, numberasstring, 10);
         strncat(outputstring, numberasstring, _max(0,sizeofoutputstring-strlen(outputstring))); //.c_str()
         strncat(outputstring, ",\r\n\"zonename\":\"", _max(0,sizeofoutputstring-strlen(outputstring)));
         strncat(outputstring, currentzonename, _max(0,sizeofoutputstring-strlen(outputstring)));
         strncat(outputstring, "\",\r\n\"zonetype\":\"", _max(0,sizeofoutputstring-strlen(outputstring)));
         strncat(outputstring, pm.getZoneSensorType(ix), _max(0,sizeofoutputstring-strlen(outputstring)));
-        strncat(outputstring, "\"},\r\n", _max(0,sizeofoutputstring-strlen(outputstring)));
+        strncat(outputstring, "\"}\r\n", _max(0,sizeofoutputstring-strlen(outputstring)));
         client.print(outputstring);
+        number_of_zones++;
         //client.write(outputstring, strlen(outputstring));
      }
   }
@@ -580,8 +687,12 @@ void handleGetZoneNames() {
 }
 
 void handleConfig() {
+   if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+      if (!server.authenticate("admin", Settings.UIPassword))
+      return server.requestAuthentication();
+   }
   //Start the response
-  bool updateEEPROM = false;
+  char tmpString[64];
   WiFiClient client = server.client();
   client.print(JsonHeaderText);
   client.print("{\"update_config\":\"success\",\r\n");
@@ -597,11 +708,9 @@ void handleConfig() {
 
   //If we have received an ST IP then update as needed
   if (server.hasArg("ip_for_st")) {
-      //Check if it has changed before writing to EEPROM
-      if (server.arg("ip_for_st") != IP_FOR_ST) {
-          server.arg("ip_for_st").toCharArray(IP_FOR_ST, sizeof(IP_FOR_ST));
-          updateEEPROM = true;
-      }
+      //Update setting
+      server.arg("ip_for_st").toCharArray(tmpString, 26);
+      str2ip(tmpString, Settings.haIP);
       //Respond with current value, even if not needing an update
       client.print("\"ip_for_st\":\"");
       client.print(server.arg("ip_for_st").c_str());
@@ -609,11 +718,8 @@ void handleConfig() {
   }
   //If we have received an ST Port then update as needed
   if (server.hasArg("port_for_st")) {
-      //Check if it has changed before writing to EEPROM
-      if (server.arg("port_for_st") != PORT_FOR_ST) {
-          server.arg("port_for_st").toCharArray(PORT_FOR_ST, sizeof(PORT_FOR_ST));
-          updateEEPROM = true;
-      }
+      //Update setting
+      Settings.haPort = server.arg("port_for_st").toInt();
       //Respond with current value, even if not needing an update
       client.print("\"port_for_st\":\"");
       client.print(server.arg("port_for_st").c_str());
@@ -622,11 +728,9 @@ void handleConfig() {
   
   //If we have received an Static IP then update as needed
   if (server.hasArg("static_ip")) {
-      //Check if it has changed before writing to EEPROM
-      if (server.arg("static_ip") != STATIC_IP) {
-          server.arg("static_ip").toCharArray(STATIC_IP, sizeof(STATIC_IP));
-          updateEEPROM = true;
-      }
+      //Update setting
+      server.arg("static_ip").toCharArray(tmpString, 26);
+      str2ip(tmpString, Settings.IP);
       //Respond with current value, even if not needing an update
       client.print("\"static_ip\":\"");
       client.print(server.arg("static_ip").c_str());
@@ -634,11 +738,9 @@ void handleConfig() {
   }
   //If we have received an Static Gateway then update as needed
   if (server.hasArg("static_gateway")) {
-      //Check if it has changed before writing to EEPROM
-      if (server.arg("static_gateway") != STATIC_GATEWAY) {
-          server.arg("static_gateway").toCharArray(STATIC_GATEWAY, sizeof(STATIC_GATEWAY));
-          updateEEPROM = true;
-      }
+      //Update setting
+      server.arg("static_gateway").toCharArray(tmpString, 26);
+      str2ip(tmpString, Settings.Gateway);
       //Respond with current value, even if not needing an update
       client.print("\"static_gateway\":\"");
       client.print(server.arg("static_gateway").c_str());
@@ -646,42 +748,48 @@ void handleConfig() {
   }
   //If we have received an Static Subnet then update as needed
   if (server.hasArg("static_subnet")) {
-      //Check if it has changed before writing to EEPROM
-      if (server.arg("static_subnet") != STATIC_SUBNET) {
-          server.arg("static_subnet").toCharArray(STATIC_SUBNET, sizeof(STATIC_SUBNET));
-          updateEEPROM = true;
-      }
+      //Update setting
+      server.arg("static_subnet").toCharArray(tmpString, 26);
+      str2ip(tmpString, Settings.Subnet);
       //Respond with current value, even if not needing an update
       client.print("\"static_subnet\":\"");
       client.print(server.arg("static_subnet").c_str());
       client.print("\",\r\n");
   }
-  
-  //If we have received an MQTT Username then update as needed - and log that it needs connecting
-  if (server.hasArg("mqtt_username")) {
-      //Check if it has changed before writing to EEPROM
-      if (server.arg("mqtt_username") != MQTT_USERNAME) {
-          server.arg("mqtt_username").toCharArray(MQTT_USERNAME, sizeof(MQTT_USERNAME));
-          updateEEPROM = true;
+  //If we have received an MQTT Username then update as needed (and try to connect again)
+  if (server.hasArg("use_mqtt")) {
+      //Update setting
+      if (strcmp(server.arg("use_mqtt").c_str(),"true")==0) {
+          Settings.useMQTT = true;
           mqtt_setup_correct = false;
+      }
+      else {
+          Settings.useMQTT = false;
       }
       //Respond with current value, even if not needing an update
       client.print("\"mqtt_username\":\"");
       client.print(server.arg("mqtt_username").c_str());
       client.print("\",\r\n");
   }
-  //If we have received an MQTT Username then update as needed - and log that it needs connecting
+  //If we have received an MQTT Username then update as needed (and try to connect again)
+  if (server.hasArg("mqtt_username")) {
+      //Update setting
+      strncpy(Settings.MQTTUser, server.arg("mqtt_username").c_str(), sizeof(Settings.MQTTUser));
+      //Respond with current value, even if not needing an update
+      client.print("\"mqtt_username\":\"");
+      client.print(server.arg("mqtt_username").c_str());
+      client.print("\",\r\n");
+      mqtt_setup_correct = false;
+  }
+  //If we have received an MQTT Password then update as needed (and try to connect again)
   if (server.hasArg("mqtt_password")) {
-      //Check if it has changed before writing to EEPROM
-      if (server.arg("mqtt_password") != MQTT_PASSWORD) {
-          server.arg("mqtt_password").toCharArray(MQTT_PASSWORD, sizeof(MQTT_PASSWORD));
-          updateEEPROM = true;
-          mqtt_setup_correct = false;
-      }
+      //Update setting
+      strncpy(Settings.MQTTPass, server.arg("mqtt_password").c_str(), sizeof(Settings.MQTTPass));
       //Respond with current value, even if not needing an update
       client.print("\"mqtt_password\":\"");
       client.print(server.arg("mqtt_password").c_str());
       client.print("\",\r\n");
+      mqtt_setup_correct = false;
   }
   
 
@@ -691,13 +799,15 @@ void handleConfig() {
   //We have tried to do another config, so lets reset mqtt in case this time it connects
   mqtt_connection_fail = false;
 
-  //Now save the values to EEPROM if updated values received
-  if (updateEEPROM) {
-      WriteEEPROMSettings();
-  }
+  //Now save the values
+  SaveSettings();
 }
 
 void handleAlarm() {
+   if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+      if (!server.authenticate("admin", Settings.UIPassword))
+      return server.requestAuthentication();
+   }
   //Check for a method and if so, try to process it
   if (server.hasArg("method")) {
     int tempnumber = -1;
@@ -768,6 +878,10 @@ void handleArmHomeInstant() {
 }
 
 void handleRestart() {
+   if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+      if (!server.authenticate("admin", Settings.UIPassword))
+      return server.requestAuthentication();
+   }
   //This restarts the ESP from a web command in case it is needed
   server.send(200, "text/plain", "ESP is restarting (can also reset with changed URL)");
   server.stop();
@@ -780,6 +894,10 @@ void handleReboot() {
 }
 
 void handleReset() {
+   if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+      if (!server.authenticate("admin", Settings.UIPassword))
+      return server.requestAuthentication();
+   }
   //This resets the ESP from a web command in case it is needed
   server.send(200, "text/plain", "ESP is resetting (can also restart with changed URL)");
   server.stop();
@@ -803,6 +921,10 @@ void handleNotFound(){
 }
 
 void handleTest() {
+   if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+      if (!server.authenticate("admin", Settings.UIPassword))
+      return server.requestAuthentication();
+   }
   //Start the response
   WiFiClient client = server.client();
   client.print(JsonHeaderText);
@@ -820,6 +942,231 @@ void handleTest() {
   }
 }
 
+void handleAdvanced() {
+
+   if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+      if (!server.authenticate("admin", Settings.UIPassword))
+      return server.requestAuthentication();
+   }
+    char tmpString[64];
+    String haip = server.arg("haip");
+    String haport = server.arg("haport");
+    String usepassword = server.arg("usepassword");
+    String uipassword = server.arg("uipassword");
+    String usestatic = server.arg("usestatic");
+    String ip = server.arg("ip");
+    String gateway = server.arg("gateway");
+    String subnet = server.arg("subnet");
+    String usemqtt = server.arg("usemqtt");
+    String mqttuser = server.arg("mqttuser");
+    String mqttpass = server.arg("mqttpass");
+    String apwhennowifi = server.arg("apwhennowifi");
+
+    if (haip.length() != 0)
+    {
+      haip.toCharArray(tmpString, 26);
+      str2ip(tmpString, Settings.haIP);
+    }
+  
+    if (haport.length() != 0)
+    {
+      Settings.haPort = haport.toInt();
+    }
+  
+    if (usepassword.length() != 0)
+    {
+      Settings.usePassword = (usepassword == "yes");
+    }
+  
+    if (uipassword.length() >= 0)
+    {
+      strncpy(Settings.UIPassword, uipassword.c_str(), sizeof(Settings.UIPassword));
+    }
+  
+    if (usestatic.length() != 0)
+    {
+      Settings.useStatic = (usestatic == "yes");
+    }
+  
+    if (ip.length() >= 0 && subnet.length() >= 0 && gateway.length() >= 0)
+    {
+      ip.toCharArray(tmpString, 26);
+      str2ip(tmpString, Settings.IP);
+      subnet.toCharArray(tmpString, 26);
+      str2ip(tmpString, Settings.Subnet);
+      gateway.toCharArray(tmpString, 26);
+      str2ip(tmpString, Settings.Gateway);
+    }
+  
+    if (usemqtt.length() != 0)
+    {
+      Settings.useMQTT = (usemqtt == "yes");
+    }
+  
+    if (mqttuser.length() >= 0)
+    {
+      strncpy(Settings.MQTTUser, mqttuser.c_str(), sizeof(Settings.MQTTUser));
+    }
+  
+    if (mqttpass.length() >= 0)
+    {
+      strncpy(Settings.MQTTPass, mqttpass.c_str(), sizeof(Settings.MQTTPass));
+    }
+  
+    if (apwhennowifi.length() != 0)
+    {
+      Settings.APWhenNoWiFi = (apwhennowifi == "yes");
+    }
+
+    SaveSettings();
+
+    String reply = "";
+    char str[20];
+  //This adds the CSV and Javascript
+    addHeader(true, reply);
+
+    reply += F("<script src='http://ajax.googleapis.com/ajax/libs/jquery/1/jquery.min.js'></script>");
+
+    reply += F("<form name='frmselect' class='form' method='post'><table>");
+    reply += F("<TH colspan='2'>");
+    reply += F("ESP Settings");
+    reply += F("<TR><TD><TD><TR><TD colspan='2' align='center'>");
+
+    reply += F("<TR><TD><TD><TR><TD>Configure variables and settings<BR>");
+
+    reply += F("<TR><TD>Use UI Password:<TD>");
+    reply += F("<input type='radio' name='usepassword' value='yes'");
+    if (Settings.usePassword) {reply += F(" checked ");}
+    reply += F(">Yes");
+    reply += F("</input>");
+    reply += F("<input type='radio' name='usepassword' value='no'");
+    if (!Settings.usePassword) {reply += F(" checked ");}
+    reply += F(">No");
+    reply += F("</input>");
+
+    reply += F("<TR><TD>Set \"admin\" UI Password:<TD>");
+    reply += F("<input type='password' id='ui_password' name='uipassword' value='");
+    Settings.UIPassword[25] = 0;
+    reply += Settings.UIPassword;
+    reply += F("'>");
+
+    reply += F("<input type='checkbox' id='showPassword' name='show' value='Show'> Show");
+    reply += F("<script type='text/javascript'>");
+    reply += F("$(\"#showPassword\").click(function() {");
+    reply += F("var showPasswordCheckBox = document.getElementById(\"showPassword\");");
+    reply += F("$('.form').find(\"#ui_password\").each(function() {");
+    reply += F("if(showPasswordCheckBox.checked){");
+    reply += F("$(\"<input type='text' />\").attr({ name: this.name, value: this.value, id: this.id}).insertBefore(this);");
+    reply += F("}else{");
+    reply += F("$(\"<input type='password' />\").attr({ name: this.name, value: this.value, id: this.id }).insertBefore(this);");
+    reply += F("}");
+    reply += F("}).remove();");
+    reply += F("});");
+    reply += F("$(document).ready(function() {");
+    reply += F("$(\"#ui_password_checkbox\").click(function() {");
+    reply += F("if ($('input.checkbox_check').attr(':checked')); {");
+    reply += F("$(\"#ui_password\").attr('type', 'text');");
+    reply += F("}});");
+    reply += F("});");
+    reply += F("</script>");
+
+
+    reply += F("<TR><TD>Smart Home Controller IP:<TD><input type='text' name='haip' value='");
+    sprintf_P(str, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
+    reply += str;
+    reply += F("'>");
+
+    reply += F("<TR><TD>Smart Home Controller Port:<TD><input type='text' name='haport' value='");
+    reply += Settings.haPort;
+    reply += F("'>");
+
+    reply += F("<TR><TD>Use Static IP:<TD>");
+    reply += F("<input type='radio' name='usestatic' value='yes'");
+    if (Settings.useStatic) {reply += F(" checked ");}
+    reply += F(">Yes");
+    reply += F("</input>");
+    reply += F("<input type='radio' name='usestatic' value='no'");
+    if (!Settings.useStatic) {reply += F(" checked ");}
+    reply += F(">No");
+    reply += F("</input>");
+
+    reply += F("<TR><TD>Static IP:<TD><input type='text' name='ip' value='");
+    sprintf_P(str, PSTR("%u.%u.%u.%u"), Settings.IP[0], Settings.IP[1], Settings.IP[2], Settings.IP[3]);
+    reply += str;
+    reply += F("'>");
+    reply += F("<TR><TD>Static Subnet:<TD><input type='text' name='subnet' value='");
+    sprintf_P(str, PSTR("%u.%u.%u.%u"), Settings.Subnet[0], Settings.Subnet[1], Settings.Subnet[2], Settings.Subnet[3]);
+    reply += str;
+    reply += F("'>");
+    reply += F("<TR><TD>Static Gateway:<TD><input type='text' name='gateway' value='");
+    sprintf_P(str, PSTR("%u.%u.%u.%u"), Settings.Gateway[0], Settings.Gateway[1], Settings.Gateway[2], Settings.Gateway[3]);
+    reply += str;
+    reply += F("'>");
+  
+    reply += F("<TR><TD>Use MQTT Mode:<TD>");
+    reply += F("<input type='radio' name='usemqtt' value='yes'");
+    if (Settings.useMQTT) {reply += F(" checked ");}
+    reply += F(">Yes");
+    reply += F("</input>");
+    reply += F("<input type='radio' name='usemqtt' value='no'");
+    if (!Settings.useMQTT) {reply += F(" checked ");}
+    reply += F(">No");
+    reply += F("</input>");
+
+    reply += F("<TR><TD>MQTT Username:<TD><input type='text' name='mqttuser' value='");
+    reply += Settings.MQTTUser;
+    reply += F("'>");
+    reply += F("<TR><TD>MQTT Password:<TD><input type='text' name='mqttpass' value='");
+    reply += Settings.MQTTPass;
+    reply += F("'>");
+
+    reply += F("<TR><TD>Broadcast AP if no WiFi (if No hard to change SSID):<TD>");
+    reply += F("<input type='radio' name='apwhennowifi' value='yes'");
+    if (Settings.APWhenNoWiFi) {reply += F(" checked ");}
+    reply += F(">Yes");
+    reply += F("</input>");
+    reply += F("<input type='radio' name='apwhennowifi' value='no'");
+    if (!Settings.APWhenNoWiFi) {reply += F(" checked ");}
+    reply += F(">No");
+    reply += F("</input>");
+    
+    reply += F("<TR><TD><TD><input class=\"button-link\" type='submit' value='Submit'>");
+    reply += F("</table></form>");
+    //addFooter(reply);
+    server.send(200, "text/html", reply);
+}
+
+void addHeader(boolean showMenu, String& str)
+{
+  boolean cssfile = false;
+
+  str += F("<script language=\"javascript\"><!--\n");
+  str += F("function dept_onchange(frmselect) {frmselect.submit();}\n");
+  str += F("//--></script>");
+  str += F("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><title>");
+  str += F("Alarm Controller");
+  str += F("</title>");
+
+  str += F("<style>");
+  str += F("* {font-family:sans-serif; font-size:12pt;}");
+  str += F("h1 {font-size:16pt; color:black;}");
+  str += F("h6 {font-size:10pt; color:black; text-align:center;}");
+  str += F(".button-menu {background-color:#ffffff; color:#000000; margin: 10px; text-decoration:none}");
+  str += F(".button-link {border-radius:0.3rem; padding:5px 15px; background-color:#000000; color:#fff; border:solid 1px #fff; text-decoration:none}");
+  str += F(".button-menu:hover {background:#ddddff;}");
+  str += F(".button-link:hover {background:#707070;}");
+  str += F("th {border-radius:0.3rem; padding:10px; background-color:black; color:#ffffff;}");
+  str += F("td {padding:7px;}");
+  str += F("table {color:black;}");
+  str += F(".div_l {float: left;}");
+  str += F(".div_r {float: right; margin: 2px; padding: 1px 10px; border-radius: 7px; background-color:#080; color:white;}");
+  str += F(".div_br {clear: both;}");
+  str += F("</style>");
+
+  str += F("</head>");
+  str += F("<center>");
+}
+
 
 void setup(void){
 
@@ -830,30 +1177,55 @@ void setup(void){
   digitalWrite(14, HIGH);
   digitalWrite(0, HIGH);
 
-  //Add the EEPROM in order to save values for ST and immediately read IP and port for SmartThings
-  EEPROM.begin(512);
-  ReadEEPROMSettings();
+  //Read settings from SPIFFS, increase reset counter and save new reset counter
+  LoadSettings();
+  Settings.resetCounter++;
+  SaveSettings();
 
-  //Now zero the settings if they are 255 which is probably null/unset (byte 255 != 255 figure)
-  if (IP_FOR_ST[0] == 255) {
-    IP_FOR_ST[0] = '\0';
-  }
-  if (PORT_FOR_ST[0] == 255) {
-    PORT_FOR_ST[0] = '\0';
-  }
-  if (MQTT_USERNAME[0] == 255) {
-    MQTT_USERNAME[0] = '\0';
-  }
-  if (MQTT_PASSWORD[0] == 255) {
-    MQTT_PASSWORD[0] = '\0';
+  if (Settings.resetCounter >= RESET_LIMIT) {
+    //We have reached reset limit so clear settings and restart
+    EraseFlash();
+    //Now initialise WiFi Manager so we can be sure it flushes the settings too
+    WiFiManager wifiManager;
+    wifiManager.resetSettings();
+    //wifiManager.persistent(false);
+    //wifiManager.disconnect(true);          
+    //wifiManager.persistent(true);
+    delay(1000);
+    ESP.restart();
   }
 
+  //Wait 2s before continuing (this is the boot delay)
+  delay(2000);
+
+  if ((Settings.settingsVersion < 100) || (Settings.settingsVersion == 255)) {
+    str2ip((char*)DEFAULT_HAIP, Settings.haIP);
+    Settings.haPort = DEFAULT_HAPORT;
+    Settings.usePassword = DEFAULT_USE_PASS;
+    strncpy(Settings.UIPassword, DEFAULT_UI_PASS, sizeof(Settings.UIPassword));
+    Settings.useStatic = DEFAULT_USE_STATIC;
+    str2ip((char*)DEFAULT_IP, Settings.IP);
+    str2ip((char*)DEFAULT_GATEWAY, Settings.Gateway);
+    str2ip((char*)DEFAULT_SUBNET, Settings.Subnet);
+    Settings.useMQTT = DEFAULT_USE_MQTT;
+    strncpy(Settings.MQTTUser, DEFAULT_MQTT_USER, sizeof(Settings.MQTTUser));
+    strncpy(Settings.MQTTPass, DEFAULT_MQTT_PASS, sizeof(Settings.MQTTPass));
+    Settings.APWhenNoWiFi = DEFAULT_AP_WHEN_NO_WIFI;
+    Settings.resetCounter = DEFAULT_RESET_COUNTER;
+    Settings.settingsVersion = 100;
+  }
+  
+  Settings.resetCounter = 0;
+  SaveSettings();
   
   //WiFiManager
   //Local intialization. Once its business is done, there is no need to keep it around
   WiFiManager wifiManager;
-  //reset settings - for testing
-  //wifiManager.resetSettings();
+
+  //Try and use static IP address if one is loaded
+  if (Settings.useStatic == true) {
+    wifiManager.setSTAStaticIPConfig(Settings.IP, Settings.Gateway, Settings.Subnet);
+  }
 
   //sets timeout until configuration portal gets turned off
   //useful to make it all retry or go to sleep
@@ -864,22 +1236,20 @@ void setup(void){
   //fetches ssid and pass and tries to connect
   //if it does not connect it starts an access point with the specified name
   //and goes into a blocking loop awaiting configuration
-  if(!wifiManager.autoConnect("VisonicPowermaxBridge")) {
-      //Serial.println("failed to connect and hit timeout");
-      delay(3000);
-      //reset and try again, or maybe put it to deep sleep
-      ESP.reset();
-      delay(5000);
+  if (Settings.APWhenNoWiFi == true) {
+    if(!wifiManager.autoConnect("VisonicPowermaxBridge")) {
+        //Serial.println("failed to connect and hit timeout");
+        delay(3000);
+        //reset and try again, or maybe put it to deep sleep
+        ESP.reset();
+        delay(5000);
+    }
   }
-
-  //Try and use static IP address if one is loaded
-  IPAddress _ip,_gw,_sn;
-  //strncpy(message_text, STATIC_IP, 17)
-  _ip.fromString(STATIC_IP);
-  _gw.fromString(STATIC_GATEWAY);
-  _sn.fromString(STATIC_SUBNET);
-  //wifiManager.setSTAStaticIPConfig(_ip, _gw, _sn);
-  // Can use WiFi.disconnect(); to reset credentials and wifi
+  else {
+    //Here we are choosing to never re-broadcast an access point, hence hard to change SSID as it will not bring up the portal automatically
+    //Could do a non blocking mode here but not needed wifiManager.setConfigPortalBlocking(false);
+    //wifiManager.begin();
+  }
   
   //Now setup variables for use in SSDP/mDNS
   char macstring[16];
@@ -888,15 +1258,11 @@ void setup(void){
   sprintf(macstring, "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   
   // Set up mDNS responder:
-  // - first argument is the domain name, in this example
-  //   the fully-qualified domain name is "esp8266.local"
-  // - second argument is the IP address to advertise
-  //   we send our IP address on the WiFi network
-  char mdnsname[30] = "espPowermaxBridge";
+  char mdnsname[30] = "espPowermaxBridge-";
+  mdnsname[strlen(mdnsname)] = macstring[8];
   mdnsname[strlen(mdnsname)] = macstring[9];
   mdnsname[strlen(mdnsname)] = macstring[10];
   mdnsname[strlen(mdnsname)] = macstring[11];
-  mdnsname[strlen(mdnsname)] = macstring[12];
   mdnsname[strlen(mdnsname)] = '\0';
   if (!MDNS.begin(mdnsname)) {
     //Serial.println("Error setting up MDNS responder!");
@@ -911,32 +1277,57 @@ void setup(void){
   server.on("/refresh", handleRefresh);
   server.on("/getzonenames", handleGetZoneNames);
   server.on("/config", handleConfig);
+  server.on("/advanced", handleAdvanced);
   server.on("/restart", handleRestart);
   server.on("/reset", handleReset);
   server.on("/reboot", handleReboot);
   server.on("/test", handleTest);
   server.on("/alarm", handleAlarm);
   server.on("/armaway", [](){
+   if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+      if (!server.authenticate("admin", Settings.UIPassword))
+      return server.requestAuthentication();
+   }
     handleArmAway();
     server.send(200, "text/html", " {} <body> window.onload = <script> window.close() </script>; </body>");
   });
   server.on("/armhome", [](){
+   if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+      if (!server.authenticate("admin", Settings.UIPassword))
+      return server.requestAuthentication();
+   }
     handleArmHome();
     server.send(200, "text/html", " {} <body> window.onload = <script> window.close() </script>; </body>");
   });
   server.on("/disarm", [](){
+   if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+      if (!server.authenticate("admin", Settings.UIPassword))
+      return server.requestAuthentication();
+   }
     handleDisarm();
     server.send(200, "text/html", " {} <body> window.onload = <script> window.close() </script>; </body>");
   });
   server.on("/armawayinstant", [](){
+   if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+      if (!server.authenticate("admin", Settings.UIPassword))
+      return server.requestAuthentication();
+   }
     handleArmAwayInstant();
     server.send(200, "text/html", " {} <body> window.onload = <script> window.close() </script>; </body>");
   });
   server.on("/armhomeinstant", [](){
+   if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+      if (!server.authenticate("admin", Settings.UIPassword))
+      return server.requestAuthentication();
+   }
     handleArmHomeInstant();
     server.send(200, "text/html", " {} <body> window.onload = <script> window.close() </script>; </body>");
   });
   server.on("/ping", [](){
+   if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+      if (!server.authenticate("admin", Settings.UIPassword))
+      return server.requestAuthentication();
+   }
     server.send(200, "text/plain", "{\"ping_alive\": true}");
   });
   server.on("/description.xml", HTTP_GET, [](){
@@ -1266,10 +1657,25 @@ void loop(void){
   //Here we also check if we need to send any inactivity messages to ST
   pm.CheckInactivityTimers();
 
+  if (Settings.APWhenNoWiFi == false) {
+    //Here we could do something specific to bring up an access point, or process wifi to remove blocking mode, but not yet
+    //WiFiManager Local intialization. Once its business is done, there is no need to keep it around
+    //WiFiManager wifiManager;
+    //if (!wifiManager.startConfigPortal("VisonicPowermaxBridge")) {
+    //  Serial.println("failed to connect and hit timeout");
+    //  delay(3000);
+    //  //reset and try again, or maybe put it to deep sleep
+    //  ESP.reset();
+    //  delay(5000);
+    //}
+    ////if you get here you have connected to the WiFi
+    //Serial.println("connected...yeey :)");
+    //}
+    //wifiManager.process();
+  }
   
-  if ((MQTT_USERNAME != "") && (MQTT_PASSWORD != "")) {
-    //If we get here then somebody has saved an MQTT server, so lets setup the right variables to talk to it!
-
+  if (Settings.useMQTT == true) {
+    //Trying to use MQTT to lets try to connect
     if (!mqtt_setup) {
       //MQTT not yet fully initialised, so initialise
       mqtt_setup = true;
@@ -1278,13 +1684,16 @@ void loop(void){
     if (!mqtt_setup_correct) {
       //MQTT initialised, but not with correct IP/port, or disconnected, so fix that!
       if (!mqtt_connection_fail) {
-        mqtt.setServer(IP_FOR_ST, atoi(PORT_FOR_ST));
+        char tempstring[26];
+        sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
+        mqtt.setServer(tempstring, Settings.haPort);
         if (!mqtt.connected()) {
-          if (mqtt.connect("ESP8266Client", MQTT_USERNAME, MQTT_PASSWORD )) {
+          if (mqtt.connect("ESP8266Client", Settings.MQTTUser, Settings.MQTTPass )) {
             //Woop woop, we connected. Ensure we dont keep trying and subscribe to the set control
             mqtt_setup_correct = true;
             mqtt_connection_fail = false;
             mqtt.subscribe("alarm/set");
+            mqtt.publish("alarm/panel", "connected");
           } else {
             //Hmm, failed, not much we can do here as no serial to output to - could reset details but not good while testing
             mqtt_connection_fail = true;
