@@ -89,16 +89,19 @@ Private VMSG_PMASTER_STAT1 {&HB0, &H01, &H04, &H06, &H02, &HFF, &H08, &H03, &H00
 #define VCFG_1WKEYPADS {8, 8, 8, 8, 8, 8, 8, 0, 0}
 #define VCFG_2WKEYPADS {2, 2, 2, 2, 2, 2, 2, 8, 32}
 #define VCFG_SIRENS {2, 2, 2, 2, 2, 2, 2, 4, 8}
-#define VCFG_USERCODES {8, 8, 8, 8, 8, 8, 8, 8, 48}
+#define VCFG_USERCODES {8, 8, 8, 8, 8, 8, 8, 48, 48}
 #define VCFG_WIRELESS {28, 28, 28, 28, 28, 28, 28, 29, 62}
 #define VCFG_WIRED {2, 2, 2, 2, 2, 2, 1, 1, 2}
 #define VCFG_ZONECUSTOM {0, 5, 5, 5, 5, 5, 5, 5, 5}
+
+
 
 bool PowerMaxAlarm::setDateTime(unsigned char year, unsigned char month, unsigned char day, unsigned char hour, unsigned char minutes, unsigned char seconds)
 {
     unsigned char buff[] = {0x46,0xF8,0x00,seconds,minutes,hour,day,month,year,0xFF,0xFF};
     return queueCommand(buff, sizeof(buff), "SET_DATE_TIME", 0xA0);
 }
+
 
 bool PowerMaxAlarm::sendCommand(PmaxCommand cmd)
 {
@@ -153,12 +156,24 @@ bool PowerMaxAlarm::sendCommand(PmaxCommand cmd)
             return sendBuffer(buff, sizeof(buff));
         }
 
-    case Pmax_ARMAWAY_INSTANT:
+    case Pmax_ARMHOME_INSTANT:
         {
             unsigned char buff[] = {0xA1,0x00,0x00,0x14,0x12,0x34,0x00,0x00,0x00,0x00,0x00,0x43}; addPin(buff, 4, true);
             return sendBuffer(buff, sizeof(buff));
         }
-
+		
+    case Pmax_ARMAWAY_INSTANT:
+        {
+            unsigned char buff[] = {0xA1,0x00,0x00,0x15,0x12,0x34,0x00,0x00,0x00,0x00,0x00,0x43}; addPin(buff, 4, true);
+            return sendBuffer(buff, sizeof(buff));
+        }
+		
+    case Pmax_ALARM:
+        {
+            unsigned char buff[] = {0xA1,0x00,0x00,0x07,0x12,0x34,0x00,0x00,0x00,0x00,0x00,0x43}; addPin(buff, 4, true);
+            return sendBuffer(buff, sizeof(buff));
+        }
+		
     case Pmax_REQSTATUS:
         {
             unsigned char buff[] = {0xA2,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x43};
@@ -232,19 +247,19 @@ bool PowerMaxAlarm::sendCommand(PmaxCommand cmd)
             return queueCommand(buff, sizeof(buff), "Pmax_DL_SERIAL", 0x3F);
         }
 
-   case Pmax_DL_ZONESTR:
+    case Pmax_DL_ZONESTR:
         {
             unsigned char buff[] = {0x3E, 0x00, 0x19, 0x00, 0x02, 0xB0, 0x00, 0x00, 0x00, 0x00, 0x00};
             return queueCommand(buff, sizeof(buff), "Pmax_DL_ZONESTR", 0x3F);
         }
 
-   case Pmax_DL_ZONESIGNAL:
+    case Pmax_DL_ZONESIGNAL:
        {
             unsigned char buff[] = {0x3E, 0xDA, 0x09, 0x1C /*this might be the zone count*/, 0x00, 0xB0, 0x03, 0x00, 0x03, 0x00, 0x03};
             return queueCommand(buff, sizeof(buff), "Pmax_DL_ZONESIGNAL", 0x3F);
        }
 
-   case Pmax_DL_GET:
+    case Pmax_DL_GET:
         {
             unsigned char buff[] = {0x0A};
             return queueCommand(buff, sizeof(buff), "Pmax_DL_GET", 0x33);
@@ -568,7 +583,10 @@ unsigned long PowerMaxAlarm::getSecondsFromLastComm() const
 
 void PowerMaxAlarm::addPin(unsigned char* bufferToSend, int pos, bool useMasterCode)
 {
-    const int pin = useMasterCode ? m_cfg.GetMasterPinAsHex() : POWERLINK_PIN;
+	//Powerlnk_PIN_Code is a custom field which can be updated outside the library
+    const int pin = useMasterCode ? m_cfg.GetMasterPinAsHex() : Powerlink_PIN_Code;
+	//const int pin = useMasterCode ? m_cfg.GetMasterPinAsHex() : POWERLINK_PIN;
+    //const int pin = useMasterCode ? m_cfg.GetMasterPinAsHex() : POWERLINK_PMASTER_PIN;
     bufferToSend[pos]=pin>>8;
     bufferToSend[pos+1]=pin & 0x00FF ;
 }
@@ -1157,6 +1175,16 @@ void PowerMaxAlarm::processSettings()
                         pZone->sensorMake = "Visonic Vibration Sensor";
                         break;
 
+                    case 0x1:
+                        pZone->sensorType = "Case1";
+                        pZone->sensorMake = "Case1";
+                        break;
+
+					case 0x2:
+                        pZone->sensorType = "Shock";
+                        pZone->sensorMake = "Visonic Shock Sensor";
+                        break;
+
                     case 0x3:
                     case 0x4:
                     case 0xC:
@@ -1171,6 +1199,16 @@ void PowerMaxAlarm::processSettings()
                         pZone->sensorMake = "Visonic Door/Window Contact";
                         break;
 
+                    case 0x8:
+                        pZone->sensorType = "Case8";
+                        pZone->sensorMake = "Case8";
+                        break;
+
+					case 0x9:
+                        pZone->sensorType = "Case9";
+                        pZone->sensorMake = "Case9";
+                        break;
+
                     case 0xA:
                         pZone->sensorType = "Smoke";
                         pZone->sensorMake = "Visonic Smoke Detector";
@@ -1179,6 +1217,16 @@ void PowerMaxAlarm::processSettings()
                     case 0xB:
                         pZone->sensorType = "Gas";
                         pZone->sensorMake = "Visonic Gas Detector";
+                        break;
+
+                    case 0xD:
+                        pZone->sensorType = "CaseD";
+                        pZone->sensorMake = "CaseD";
+                        break;
+
+					case 0xE:
+                        pZone->sensorType = "CaseE";
+                        pZone->sensorMake = "CaseE";
                         break;
 
                     case 0xF:
