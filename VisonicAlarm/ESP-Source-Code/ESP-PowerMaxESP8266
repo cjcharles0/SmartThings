@@ -102,9 +102,9 @@ int max_zone_id_enrolled = MAX_ZONE_COUNT;
 //Lets set up MQTT in case it is used/needed
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
-bool mqtt_setup = false;
-bool mqtt_setup_correct = false;
-bool mqtt_connection_fail = false;
+bool mqtt_setup = false;            //This defines whether we have set up the callbacks
+bool mqtt_setup_correct = false;    //This defines whether we have successfully connected
+bool mqtt_connect_fail_count = 0;   //This is the number of times we have failed so we dont keep on trying unless you try saving settings again
 
 //These functions will load our Settings struct into memory or read it back
 void SaveSettings(void)
@@ -218,7 +218,6 @@ boolean str2ip(char *string, byte* IP)
 }
 
 void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsigned char zoneID, int zone_or_system_update) {
-    char message_text[600];
 
     //Convert zone ID to text
     char zoneIDtext[10];
@@ -227,7 +226,9 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
 
     DEBUG(LOG_NOTICE, "Creating JSON string");
 
-    if (!mqtt_setup_correct) {
+    if (Settings.useMQTT == false) {
+        char message_text[600];
+        
         //We have no MQTT details so lets send to HTTP and hence start with headers
         strncpy(message_text, "POST / HTTP/1.1\r\nHost: ", 600);
         sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
@@ -236,45 +237,30 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
         itoa(Settings.haPort, tempstring, 10);
         strcat(message_text, tempstring);
         strcat(message_text, "\r\nContent-Type: application/json;charset=utf-8\r\nServer: Visonic Alarm\r\nConnection: close\r\n\r\n");
-    }
-    else {
-        //We have MQTT details so start with a blank string
-        message_text[0] = '\0';
-    }
 
-    //Now build key JSON structure
-    if (zone_or_system_update == ALARM_STATE_CHANGE) {
-        //Here we have an alarm status change (zone 0) so put the status into JSON
-        strcat(message_text, "{\"stat_str\": \"");
-        strcat(message_text, ZoneOrEvent);
-        strcat(message_text, "\",\r\n\"stat_update_from\": \"");
-        strcat(message_text, WhoOrState);
-        strcat(message_text, "\"");
-    }
-    else if (zone_or_system_update == ZONE_STATE_CHANGE) {
-        //Here we have a zone status change so put this information into JSON
-        strcat(message_text, "{\"zone_id\": \"");
-        strcat(message_text, zoneIDtext);
-        strcat(message_text, "\",\r\n\"zone_name\": \"");
-        strcat(message_text, ZoneOrEvent);
-        strcat(message_text, "\",\r\n\"zone_status\": \"");
-        strcat(message_text, WhoOrState);
-        strcat(message_text, "\"");
-    }
+        //Now build key JSON structure
+        if (zone_or_system_update == ALARM_STATE_CHANGE) {
+            //Here we have an alarm status change (zone 0) so put the status into JSON
+            strcat(message_text, "{\"stat_str\": \"");
+            strcat(message_text, ZoneOrEvent);
+            strcat(message_text, "\",\r\n\"stat_update_from\": \"");
+            strcat(message_text, WhoOrState);
+            strcat(message_text, "\"");
+        }
+        else if (zone_or_system_update == ZONE_STATE_CHANGE) {
+            //Here we have a zone status change so put this information into JSON
+            strcat(message_text, "{\"zone_id\": \"");
+            strcat(message_text, zoneIDtext);
+            strcat(message_text, "\",\r\n\"zone_name\": \"");
+            strcat(message_text, ZoneOrEvent);
+            strcat(message_text, "\",\r\n\"zone_status\": \"");
+            strcat(message_text, WhoOrState);
+            strcat(message_text, "\"");
+        }
+        
+        //Close the JSON string
+        strcat(message_text, "}\r\n");
 
-    //If MQTT, then add the retain flag for simplicity
-    if (mqtt_setup_correct) {
-        //strcat(message_text, ",\r\n\"retain\": true\"");
-    }
-
-    //Close the JSON string
-    strcat(message_text, "}\r\n");
-
-    //Useful debug log below, but slows things down so disabled when not needed
-    //DEBUG(LOG_NOTICE, message_text);
-
-    //Here we should work out which protocol we should use to send the info
-    if (!mqtt_setup_correct) {
         //No MQTT details means we should use http for sending the data rather than MQTT
         WiFiClient client;
         char tempstring[26];
@@ -287,17 +273,28 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
         client.print(message_text);
     }
     else {
-        //Here we have MQTT setup, so lets send data via MQTT
-        char topic[25];
-        topic[0] = '\0';
-        if (zone_or_system_update == ALARM_STATE_CHANGE) {
-            strcat(topic, "alarm/panel");
+        //Here we should be using MQTT so lets check everything is correct first
+        if (mqtt_setup_correct) {
+            //Here we have MQTT setup correctly so let's send!
+
+            char topic[25];
+            topic[0] = '\0';
+            if (zone_or_system_update == ALARM_STATE_CHANGE) {
+                strcat(topic, "alarm/panel");
+            }
+            else {
+                strcat(topic, "alarm/zone");
+                strcat(topic, zoneIDtext);
+            }
+
+            //Now publish the message with retain flag (the 'true' parameter)
+            if (zone_or_system_update == ALARM_STATE_CHANGE) {
+              mqtt.publish(topic, ZoneOrEvent, true);
+            }
+            if (zone_or_system_update == ZONE_STATE_CHANGE) {
+              mqtt.publish(topic, WhoOrState, true);
+            }
         }
-        else {
-            strcat(topic, "alarm/zone");
-            strcat(topic, zoneIDtext);
-        }
-        mqtt.publish(topic, message_text);
     }
 }
 
@@ -833,7 +830,7 @@ void handleConfig() {
     client.stop();
 
     //We have tried to do another config, so lets reset mqtt in case this time it connects
-    mqtt_connection_fail = false;
+    mqtt_connect_fail_count = 0;
 
     //Now save the values
     SaveSettings();
@@ -1015,7 +1012,7 @@ void handleAdvanced() {
         Settings.usePassword = (usepassword == "yes");
     }
 
-    if (uipassword.length() >= 0)
+    if (uipassword.length() > 0)
     {
         strncpy(Settings.UIPassword, uipassword.c_str(), sizeof(Settings.UIPassword));
     }
@@ -1038,16 +1035,25 @@ void handleAdvanced() {
     if (usemqtt.length() != 0)
     {
         Settings.useMQTT = (usemqtt == "yes");
+        mqtt_setup_correct = false;
+        //We have tried to do another config, so lets reset mqtt in case this time it connects
+        mqtt_connect_fail_count = 0;
     }
 
-    if (mqttuser.length() >= 0)
+    if (mqttuser.length() > 0)
     {
         strncpy(Settings.MQTTUser, mqttuser.c_str(), sizeof(Settings.MQTTUser));
+        mqtt_setup_correct = false;
+        //We have tried to do another config, so lets reset mqtt in case this time it connects
+        mqtt_connect_fail_count = 0;
     }
 
-    if (mqttpass.length() >= 0)
+    if (mqttpass.length() > 0)
     {
         strncpy(Settings.MQTTPass, mqttpass.c_str(), sizeof(Settings.MQTTPass));
+        mqtt_setup_correct = false;
+        //We have tried to do another config, so lets reset mqtt in case this time it connects
+        mqtt_connect_fail_count = 0;
     }
 
     if (apwhennowifi.length() != 0)
@@ -1055,7 +1061,8 @@ void handleAdvanced() {
         Settings.APWhenNoWiFi = (apwhennowifi == "yes");
     }
     
-    if (powermaxpin.length() >= 4)
+    if (powermaxpin.length() == 4)
+    //Need a four character pin to convert to a 4 digit hex code
     {
         //Save the new PIN code, ensure it is null terminated and send to Powermax
         strncpy(Settings.PowermaxPIN, powermaxpin.c_str(), sizeof(Settings.PowermaxPIN));
@@ -1755,7 +1762,7 @@ void loop(void) {
         }
         if (!mqtt_setup_correct) {
             //MQTT initialised, but not with correct IP/port, or disconnected, so fix that!
-            if (!mqtt_connection_fail) {
+            if (mqtt_connect_fail_count < 5) {
                 char tempstring[26];
                 sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
                 mqtt.setServer(tempstring, Settings.haPort);
@@ -1763,18 +1770,18 @@ void loop(void) {
                     if (mqtt.connect("ESP8266Client", Settings.MQTTUser, Settings.MQTTPass )) {
                         //Woop woop, we connected. Ensure we dont keep trying and subscribe to the set control
                         mqtt_setup_correct = true;
-                        mqtt_connection_fail = false;
+                        mqtt_connect_fail_count = 0;
                         mqtt.subscribe("alarm/set");
-                        mqtt.publish("alarm/panel", "connected");
+                        mqtt.publish("alarm/panel", "alarm connected");
                     } else {
                         //Hmm, failed, not much we can do here as no serial to output to - could reset details but not good while testing
-                        mqtt_connection_fail = true;
+                        mqtt_connect_fail_count = mqtt_connect_fail_count++;
                     }
                 }
             }
         }
         //This loop part is where we will actually process anything posted there by another device
-        if (mqtt_setup_correct && !mqtt_connection_fail) {
+        if ((mqtt_setup_correct) && (mqtt_connect_fail_count < 5)) {
             mqtt.loop();
         }
     }
