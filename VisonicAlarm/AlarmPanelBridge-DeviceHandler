@@ -184,8 +184,9 @@ metadata
 			 "zonename1", "zone1", "zonename2", "zone2", "zonename3", "zone3", "zonename4", "zone4",
 			 "zonename5", "zone5", "zonename6", "zone6", "zonename7", "zone7", "zonename8", "zone8", 
 			 
-             // Add any outputs here by uncommenting the row and then add in the same format as for zones, but without output rather than zone
-             "outputname1", "output1",
+             // Add any outputs here by uncommenting the row and then add in the same format as for zones, but with output rather than zone
+	     // These are not relevant to Powermax but are to Elk and some others
+             //"outputname1", "output1",
              
 			 "refresh", "configure", "ip", "alarm", "createtile", "removetile"
 			 //, "testtile" //If you have trouble creating your child zones you can uncomment the start of this line (remove // before the comma)
