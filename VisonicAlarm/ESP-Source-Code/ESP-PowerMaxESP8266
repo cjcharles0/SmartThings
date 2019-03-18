@@ -289,7 +289,21 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
 
             //Now publish the message with retain flag (the 'true' parameter)
             if (zone_or_system_update == ALARM_STATE_CHANGE) {
-              mqtt.publish(topic, ZoneOrEvent, true);
+              char state[25];
+              strcpy(state, ZoneOrEvent);
+              if (strcmp(state, "Disarm") == 0) {
+                strcpy(state, "disarmed");
+              }
+              if (strcmp(state, "Arm Home") == 0 || strcmp(state, "Quick Arm Home") == 0) {
+                strcpy(state, "armed_home");
+              }
+              if (strcmp(state, "Arm Away") == 0 || strcmp(state, "Quick Arm Away") == 0) {
+                strcpy(state, "armed_away");
+              }
+              if (strcmp(state, "Perimeter Alarm") == 0) {
+                strcpy(state, "triggered");
+              }
+              mqtt.publish(topic, state, true);
             }
             if (zone_or_system_update == ZONE_STATE_CHANGE) {
               mqtt.publish(topic, WhoOrState, true);
@@ -312,11 +326,26 @@ void mqttcallback(char* topic, byte* payload, unsigned int length) {
             message[i + 1] = '\0';
             //Serial.print((char)payload[i]);
         }
-        if (strcmp(message, "disarm") == 0) handleDisarm();
-        if (strcmp(message, "armaway") == 0) handleArmAway();
-        if (strcmp(message, "armhome") == 0) handleArmHome();
-        if (strcmp(message, "armawayinstant") == 0) handleArmAwayInstant();
-        if (strcmp(message, "armhomeinstant") == 0) handleArmHomeInstant();
+        if ((strcmp(message, "ARM_AWAY") == 0) || (strcmp(message, "armaway") == 0)) {
+          handleArmAway();
+          mqtt.publish("alarm/panel", "pending", false);
+        }
+        if ((strcmp(message, "ARM_HOME") == 0) || (strcmp(message, "armhome") == 0)) {
+          handleArmHome();
+          mqtt.publish("alarm/panel", "pending", false);
+        }
+        if ((strcmp(message, "DISARM") == 0) || (strcmp(message, "disarm") == 0)){
+          handleDisarm();
+          mqtt.publish("alarm/panel", "disarmed", true);
+        }
+        if ((strcmp(message, "ARM_AWAY_INSTANT") == 0) || (strcmp(message, "armawayinstant") == 0)) {
+          handleArmAwayInstant();
+          mqtt.publish("alarm/panel", "pending", false);
+        }
+        if ((strcmp(message, "ARM_HOME_INSTANT") == 0) || (strcmp(message, "armhomeinstant") == 0)) {
+          handleArmHomeInstant();
+          mqtt.publish("alarm/panel", "pending", false);
+        }
     }
 }
 
@@ -1772,7 +1801,7 @@ void loop(void) {
                         mqtt_setup_correct = true;
                         mqtt_connect_fail_count = 0;
                         mqtt.subscribe("alarm/set");
-                        mqtt.publish("alarm/panel", "alarm connected");
+                        mqtt.publish("alarm/panel", "alarm connected", false);
                     } else {
                         //Hmm, failed, not much we can do here as no serial to output to - could reset details but not good while testing
                         mqtt_connect_fail_count = mqtt_connect_fail_count++;
