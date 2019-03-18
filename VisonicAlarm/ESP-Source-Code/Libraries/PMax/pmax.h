@@ -13,6 +13,8 @@
 //This Pin is a temporary pin for powerlink (this app). Does not have to match any of user or installer codes.
 //If your pin is 1234, you need to return 0x1234 (this is strange, as 0x makes it hex, but the only way it works).
 #define POWERLINK_PIN 0x3622;
+//For Powermaster we need to use AAAA as the PIN code it seems
+#define POWERLINK_PMASTER_PIN 0xAAAA;
 
 class PowerMaxAlarm;
 
@@ -24,7 +26,9 @@ enum PmaxCommand
     Pmax_DISARM,
     Pmax_ARMHOME,
     Pmax_ARMAWAY,
+    Pmax_ARMHOME_INSTANT,
     Pmax_ARMAWAY_INSTANT,
+	Pmax_ALARM,
     Pmax_REQSTATUS,
     Pmax_ENROLLREPLY,
     Pmax_INIT,
@@ -256,11 +260,13 @@ protected:
     unsigned long m_ulNextPingDeadline; //when to expect next ping from Alarm->Pmax, if it will not arrive, we will send restore command. Pings are not expected in donwload mode
 public:
 
+	//Pin code which can be updated for talking to the alarm
+	long Powerlink_PIN_Code = 0x3622;
+
     void init(int initWaitTime = SLOW_PANEL_INIT_WAIT_TIME);
     void sendNextCommand();
     bool restoreCommsIfLost();
     void clearQueue(){ m_sendQueue.clear(); }
-    
     bool sendCommand(PmaxCommand cmd);
     void handlePacket(PlinkBuffer  * commandBuffer);
     
