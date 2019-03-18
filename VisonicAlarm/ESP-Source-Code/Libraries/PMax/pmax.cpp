@@ -1069,7 +1069,7 @@ void PowerMaxAlarm::processSettings()
     }
 
     { //Retrieve detailed zone information
-        unsigned char masterReadBuff[128] = {0};
+        unsigned char masterReadBuff[640] = {0};
 
         const unsigned char msg[] = VMSG_DL_ZONES;
         const int readCnt = readMemoryMap(msg, readBuff, sizeof(readBuff));
@@ -1080,9 +1080,9 @@ void PowerMaxAlarm::processSettings()
         else
         {
             int zoneNameIdxCnt = 0;
-            unsigned char zoneNamesIndexes[30] = {0};
+            unsigned char zoneNamesIndexes[64] = {0};
 
-            unsigned char zoneSignal[30];
+            unsigned char zoneSignal[64];
             memset(zoneSignal, 0xFF, sizeof(zoneSignal));
             
             if(m_bPowerMaster)
