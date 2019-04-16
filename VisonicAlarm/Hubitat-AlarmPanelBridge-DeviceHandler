@@ -14,7 +14,7 @@
  *
  *  Author: Chris Charles (cjcharles0)
  *  Date: 2017-02-10
- *  Version: 1.03
+ *  Version: 1.04
  */
 
 import groovy.json.JsonSlurper
@@ -67,9 +67,9 @@ metadata
 	
 	preferences {
         input name: "ip", type: "string", title:"Alarm IP Address", description: "e.g. 192.168.1.10", required: true, displayDuringSetup: true
-        input name: "alarmtriggermethod", type: "enum", title: "Method to trigger alarm", options: ["Serial", "D6", "D7"], description: "Default D7 if unsure", required: true, displayDuringSetup: true
-        input name: "prename", type: "string", title:"Add before zone name", description: "e.g. 'Zone' would give 'Zone Kitchen'", required: false, displayDuringSetup: true
-        input name: "postname", type: "string", title:"Add after zone name", description: "e.g. 'Zone' would give 'Kitchen Zone'", required: false, displayDuringSetup: true
+        input name: "alarmtriggermethod", type: "enum", title: "Method to trigger alarm", options: ["Serial", "IO"], description: "Default D7 if unsure", required: true, displayDuringSetup: true
+        input name: "prename", type: "string", title:"Add X before zone name", description: "e.g. 'Zone' would give 'Zone Kitchen'", required: false, displayDuringSetup: true
+        input name: "postname", type: "string", title:"Add X after zone name", description: "e.g. 'Zone' would give 'Kitchen Zone'", required: false, displayDuringSetup: true
         input name: "inactivityseconds", type: "string", title:"Motion sensor inactivity timeout", description: "override the default of 20s (60s max)", required: false, displayDuringSetup: false
         input name: "password", type: "password", title:"Password for wemos (leave blank)", required:false, displayDuringSetup:false
 	}
@@ -230,11 +230,8 @@ def AlarmTrigger() {
     if (alarmtriggermethod != null) {
     	def outputinfo = ""
     	switch (alarmtriggermethod) {
-        	case ["D6"]:
-            	outputinfo = "?method=12"
-                break
-            case ["D7"]:
-            	outputinfo = "?method=13"
+        	case ["IO"]:
+            	outputinfo = "?method=IO"
                 break
             case ["Serial"]:
             	outputinfo = "?method=Serial"
