@@ -13,8 +13,8 @@
  *  Alarm Bridge Controller
  *
  *  Author: Chris Charles (cjcharles0)
- *  Date: 2017-02-10
- *  Version: 1.04
+ *  Date: 2019-05-13
+ *  Version: 1.05
  */
 
 import groovy.json.JsonSlurper
@@ -134,6 +134,11 @@ metadata
 				}
 		}
 		
+        valueTile("problemtext", "device.problemtext", decoration: "flat", width: 2, height: 1)
+		{
+			state "default", label:'${currentValue}'
+		}
+        
 		standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 1, height: 1)
 		{
 			state "default", label:"", action:"refresh", icon:"st.secondary.refresh"
@@ -141,12 +146,12 @@ metadata
 	  
 		standardTile("configure", "device.configure", inactiveLabel: false, width: 1, height: 1, decoration: "flat")
 		{
-			state "configure", label:'', action:"configure", icon:"st.secondary.configure"
+			state "default", label:'', action:"configure", icon:"st.secondary.configure"
 		}
 
 		valueTile("ip", "ip", decoration: "flat", width: 2, height: 1)
 		{
-			state "ip", label:'ST IP Addr:\r\n${currentValue}'
+			state "default", label:'ST IP Addr:\r\n${currentValue}'
 		}
 		
 		standardTile("createtile", "device.createzonedevices", inactiveLabel: false, decoration: "flat", width: 2, height: 1)
@@ -187,7 +192,7 @@ metadata
              // Add any outputs here by uncommenting the row and then add in the same format as for zones, but without output rather than zone
              //"outputname1", "output1",
              
-			 "refresh", "configure", "ip", "alarm", "createtile", "removetile"
+			 "refresh", "configure", "problemtext", "alarm", "createtile", "removetile", "ip"
 			 //, "testtile" //If you have trouble creating your child zones you can uncomment the start of this line (remove // before the comma)
 			 				//After pressing the "test_function" button on your phone you can re-comment it, to tidy up your alarm panel device.
 							//This is only needed if you have trouble creating your zones.
@@ -465,11 +470,25 @@ def parse(description) {
 		sendEvent(name: "events", value: "${status_string}", displayed: true, isStateChange: true)
 	}
 	
+    //If we receive a problem report then lets check if we need to update the tile with new problems
+    if (result.containsKey("problem_report"))
+        {
+        	if (result.problem_report == problemtext)
+            {
+            	//Do nothing here as problem text has not changed
+        	}
+            else
+            {
+            	//We have an updated problem text so push it onto the tile
+            	sendEvent(name: "problemtext", value: "${result.problem_report}", displayed: true, isStateChange: true)
+            }
+        }
+    
 	if (result.containsKey("zone_status"))
 	{
-		//Got a zone status so first try to find the correct child device
+		//Got a zone status update so first try to find the correct child device
 		def curdevice = getChildDevices()?.find { it.deviceNetworkId == "alarmchildzone"+result.zone_id}
-		//Now switch based on what has happened
+		//Now switch action/update based on what has happened to that zone
 		switch (result.zone_status)
 		{
 			case "Violated (Motion)":
@@ -520,7 +539,6 @@ def parse(description) {
 			default:
 				log.debug "Unknown zone status received: ${result.zone_name} / ${result.zone_id} is ${result.zone_status}"
 				break
-
 		}
 	}
     
