@@ -58,6 +58,8 @@ extern "C" uint32_t _SPIFFS_block;
 #define DEFAULT_RESET_COUNTER          0
 #define RESET_LIMIT                    5
 #define DEFAULT_POWERMAX_PIN           "3622"
+#define DEFAULT_LISTEN_NOT_ENROL           false
+#define DEFAULT_SLOW_COMMS             false
 
 struct SettingsStruct
 {
@@ -76,6 +78,8 @@ struct SettingsStruct
     byte          resetCounter;
     byte          settingsVersion;
     char          PowermaxPIN[5];
+    boolean     ListenNotEnrol;
+    boolean     SlowComms;
 } Settings;
 
 
@@ -92,6 +96,10 @@ int activatedPinA = -1;
 int activatedPinB = -1;
 unsigned long userPinResetTime = 0;
 
+//Global variables for storing the problem text (low battery etc)
+#define SIZE_OF_PROBLEM_TEXT 201
+char alarmProblemText[SIZE_OF_PROBLEM_TEXT + 1];
+
 //Global variables for managing zones
 int zones_enrolled_count = MAX_ZONE_COUNT;
 int max_zone_id_enrolled = MAX_ZONE_COUNT;
@@ -99,11 +107,14 @@ int max_zone_id_enrolled = MAX_ZONE_COUNT;
 #define ALARM_STATE_CHANGE 0
 #define ZONE_STATE_CHANGE 1
 
+#define CONTACT_ZONE 1
+#define MOTION_ZONE 2
+
 //Lets set up MQTT in case it is used/needed
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
 bool mqtt_setup = false;            //This defines whether we have set up the callbacks
-bool mqtt_setup_correct = false;    //This defines whether we have successfully connected
+bool mqtt_setup_correct = false;    //This defines whether we are successfully connected
 bool mqtt_connect_fail_count = 0;   //This is the number of times we have failed so we dont keep on trying unless you try saving settings again
 
 //These functions will load our Settings struct into memory or read it back
@@ -201,10 +212,13 @@ boolean str2ip(char *string, byte* IP)
 
         else if (c == '.' || c == 0) // next octet from IP address
         {
-            if (value <= 255)
-                IP[part++] = value;
-            else
+            if (value <= 255) {
+                IP[part] = value;
+                part++;
+            }
+            else {
                 return false;
+            }
             value = 0;
         }
         else if (c == ' ') // ignore these
@@ -217,137 +231,6 @@ boolean str2ip(char *string, byte* IP)
     return false;
 }
 
-void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsigned char zoneID, int zone_or_system_update) {
-
-    //Convert zone ID to text
-    char zoneIDtext[10];
-    char tempstring[26];
-    itoa(zoneID, zoneIDtext, 10);
-
-    DEBUG(LOG_NOTICE, "Creating JSON string");
-
-    if (Settings.useMQTT == false) {
-        char message_text[600];
-        
-        //We have no MQTT details so lets send to HTTP and hence start with headers
-        strncpy(message_text, "POST / HTTP/1.1\r\nHost: ", 600);
-        sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
-        strcat(message_text, tempstring);
-        strcat(message_text, ":");
-        itoa(Settings.haPort, tempstring, 10);
-        strcat(message_text, tempstring);
-        strcat(message_text, "\r\nContent-Type: application/json;charset=utf-8\r\nServer: Visonic Alarm\r\nConnection: close\r\n\r\n");
-
-        //Now build key JSON structure
-        if (zone_or_system_update == ALARM_STATE_CHANGE) {
-            //Here we have an alarm status change (zone 0) so put the status into JSON
-            strcat(message_text, "{\"stat_str\": \"");
-            strcat(message_text, ZoneOrEvent);
-            strcat(message_text, "\",\r\n\"stat_update_from\": \"");
-            strcat(message_text, WhoOrState);
-            strcat(message_text, "\"");
-        }
-        else if (zone_or_system_update == ZONE_STATE_CHANGE) {
-            //Here we have a zone status change so put this information into JSON
-            strcat(message_text, "{\"zone_id\": \"");
-            strcat(message_text, zoneIDtext);
-            strcat(message_text, "\",\r\n\"zone_name\": \"");
-            strcat(message_text, ZoneOrEvent);
-            strcat(message_text, "\",\r\n\"zone_status\": \"");
-            strcat(message_text, WhoOrState);
-            strcat(message_text, "\"");
-        }
-        
-        //Close the JSON string
-        strcat(message_text, "}\r\n");
-
-        //No MQTT details means we should use http for sending the data rather than MQTT
-        WiFiClient client;
-        char tempstring[26];
-        sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
-        if (!client.connect(tempstring, Settings.haPort)) {
-            //Serial.println("connection failed");
-            return;
-        }
-        //Send the JSON to web port
-        client.print(message_text);
-    }
-    else {
-        //Here we should be using MQTT so lets check everything is correct first
-        if (mqtt_setup_correct) {
-            //Here we have MQTT setup correctly so let's send!
-
-            char topic[25];
-            topic[0] = '\0';
-            if (zone_or_system_update == ALARM_STATE_CHANGE) {
-                strcat(topic, "alarm/panel");
-            }
-            else {
-                strcat(topic, "alarm/zone");
-                strcat(topic, zoneIDtext);
-            }
-
-            //Now publish the message with retain flag (the 'true' parameter)
-            if (zone_or_system_update == ALARM_STATE_CHANGE) {
-              char state[25];
-              strcpy(state, ZoneOrEvent);
-              if (strcmp(state, "Disarm") == 0) {
-                strcpy(state, "disarmed");
-              }
-              if (strcmp(state, "Arm Home") == 0 || strcmp(state, "Quick Arm Home") == 0) {
-                strcpy(state, "armed_home");
-              }
-              if (strcmp(state, "Arm Away") == 0 || strcmp(state, "Quick Arm Away") == 0) {
-                strcpy(state, "armed_away");
-              }
-              if (strcmp(state, "Perimeter Alarm") == 0) {
-                strcpy(state, "triggered");
-              }
-              mqtt.publish(topic, state, true);
-            }
-            if (zone_or_system_update == ZONE_STATE_CHANGE) {
-              mqtt.publish(topic, WhoOrState, true);
-            }
-        }
-    }
-}
-
-void mqttcallback(char* topic, byte* payload, unsigned int length) {
-    //Got a message printed by another device, so check whether it is an arm/disarm command
-    if (strcmp(topic, "alarm/set") == 0) {
-        //if (topic == "alarm/set") {
-        char message[51];
-        int maxlength = 50;
-        if (length < 50) {
-            maxlength = length;
-        }
-        for (int i = 0; i < maxlength; i++) {
-            message[i] = (char)payload[i];
-            message[i + 1] = '\0';
-            //Serial.print((char)payload[i]);
-        }
-        if ((strcmp(message, "ARM_AWAY") == 0) || (strcmp(message, "armaway") == 0)) {
-          handleArmAway();
-          mqtt.publish("alarm/panel", "pending", false);
-        }
-        if ((strcmp(message, "ARM_HOME") == 0) || (strcmp(message, "armhome") == 0)) {
-          handleArmHome();
-          mqtt.publish("alarm/panel", "pending", false);
-        }
-        if ((strcmp(message, "DISARM") == 0) || (strcmp(message, "disarm") == 0)){
-          handleDisarm();
-          mqtt.publish("alarm/panel", "disarmed", true);
-        }
-        if ((strcmp(message, "ARM_AWAY_INSTANT") == 0) || (strcmp(message, "armawayinstant") == 0)) {
-          handleArmAwayInstant();
-          mqtt.publish("alarm/panel", "pending", false);
-        }
-        if ((strcmp(message, "ARM_HOME_INSTANT") == 0) || (strcmp(message, "armhomeinstant") == 0)) {
-          handleArmHomeInstant();
-          mqtt.publish("alarm/panel", "pending", false);
-        }
-    }
-}
 
 //////////////////////////////////////////////////////////////////////////////////
 //NOTE: PowerMaxAlarm class should contain ONLY functionality of Powerlink
@@ -357,6 +240,7 @@ class MyPowerMax : public PowerMaxAlarm
 {
     public:
         bool zone_motion[MAX_ZONE_COUNT + 1] = {0};
+        byte zone_in_use[MAX_ZONE_COUNT + 1] = {0};
         //long Powerlink_PIN_Code = 0x3622;
 
         virtual void OnStatusChange(const PlinkBuffer  * Buff)
@@ -365,8 +249,7 @@ class MyPowerMax : public PowerMaxAlarm
             PowerMaxAlarm::OnStatusChange(Buff);
 
             //Now send update to ST and use zone 0 as system state not zone
-            unsigned char zoneId = 0;
-            SendJSONMessage(GetStrPmaxLogEvents(Buff->buffer[4]), GetStrPmaxEventSource(Buff->buffer[3]), zoneId, ALARM_STATE_CHANGE);
+            SendJSONMessage(GetStrPmaxLogEvents(Buff->buffer[4]), GetStrPmaxEventSource(Buff->buffer[3]), 0, ALARM_STATE_CHANGE);
             //now our customization:
             switch (Buff->buffer[4])
             {
@@ -395,8 +278,21 @@ class MyPowerMax : public PowerMaxAlarm
             if (this->isZoneEvent()) {
                 const unsigned char zoneId = Buff->buffer[5];
                 ZoneEvent eventType = (ZoneEvent)Buff->buffer[6];
+                char currentzonename[50] = {0};
+                strncpy(currentzonename, this->getZoneName(zoneId), 49);
 
-                SendJSONMessage(this->getZoneName(zoneId), GetStrPmaxZoneEventTypes(Buff->buffer[6]), zoneId, ZONE_STATE_CHANGE);
+                if (strcmp(currentzonename, "Unknown") == 0) {
+                    //Its an unknown zone, but must be in use, so lets update to be a generic useful name
+                    strncpy(currentzonename, "Zone ", 49);
+                    char tempstring[5];
+                    itoa(zoneId, tempstring, 10);
+                    strcat(currentzonename, tempstring);
+                }
+
+                SendJSONMessage(currentzonename, GetStrPmaxZoneEventTypes(Buff->buffer[6]), zoneId, ZONE_STATE_CHANGE);
+
+                //We keep a separate log of zones in use since that helps for alarm panels which do not support Powerlink properly
+                zone_in_use[zoneId] = (byte)eventType;
 
                 //If it is a Violated (motion) event then set zone activated
                 if (eventType == ZE_Violated) {
@@ -419,7 +315,7 @@ class MyPowerMax : public PowerMaxAlarm
             int counter = 0;
             for (int ix = 1; ix < MAX_ZONE_COUNT; ix++) {
                 zone_motion[ix] = false;
-                if (zone[ix].enrolled) {
+                if ((zone[ix].enrolled) || (zone_in_use[ix] > 0)) {
                     counter++;
                     max_zone_id_enrolled = ix;
                 }
@@ -427,37 +323,98 @@ class MyPowerMax : public PowerMaxAlarm
             zones_enrolled_count = counter;
         }
 
+        bool HasZoneBeenEnrolled(int zone_num) {
+            if (zone[zone_num].enrolled) {
+                return true;
+            }
+            else {
+                return false;
+            }
+        }
+        
+        int HasZoneBeenHeardFrom(int zone_num) {
+            if (zone_in_use[zone_num] > 0) {
+                if ((zone_in_use[zone_num] == ZE_Open) || (zone_in_use[zone_num] == ZE_Closed)) {
+                    return CONTACT_ZONE;
+                }
+                else {
+                    return MOTION_ZONE;
+                }
+            }
+            else {
+                return 0;
+            }
+        }
+
+        void generateProblemText() {
+      //We have been asked to update the problem text so lets update the global char array
+      char zonenumstring[4];
+      alarmProblemText[0] = '\0';
+      for (int ix = 1; ix <= max_zone_id_enrolled; ix++) {
+        if (zone[ix].enrolled) {
+          if ((zone[ix].stat.lowBattery == true) || (zone[ix].stat.lowBattery == true)) {
+            //Here the zone is enrolled and has a problem so first check if we need a comma
+            if (strlen(alarmProblemText) > 0) {
+              strncat(alarmProblemText, ",\r\n", _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
+            }
+            //Now add zone name and problem type
+            strncat(alarmProblemText, this->getZoneName(ix), _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
+            strncat(alarmProblemText, " (Z", _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
+            itoa(ix, zonenumstring, 10);
+            strncat(alarmProblemText, zonenumstring, _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
+            strncat(alarmProblemText, ") low batt", _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
+          }
+        }
+      }
+      if (strlen(alarmProblemText) == 0) {
+        strncat(alarmProblemText, "No problems detected", _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
+      }
+        }
+
         void CheckInactivityTimers() {
             for (int ix = 1; ix <= max_zone_id_enrolled; ix++) {
                 if (zone_motion[ix]) {
                     if ((os_getCurrentTimeSec() - zone[ix].lastEventTime) > inactivity_seconds) {
                         zone_motion[ix] = false;
-                        SendJSONMessage(this->getZoneName(ix), "No Motion", ix, ZONE_STATE_CHANGE);
+                        char currentzonename[50];
+                        strncpy(currentzonename, this->getZoneName(ix), 49);
+                        if (strcmp(currentzonename, "Unknown") == 0) {
+                            //Its an unknown zone, but must be in use, so lets update to be a generic useful name
+                            strncpy(currentzonename, "Zone ", 49);
+                            char tempstring[5];
+                            itoa(ix, tempstring, 10);
+                            strcat(currentzonename, tempstring);
+                        }
+                        SendJSONMessage(currentzonename, "No Motion", ix, ZONE_STATE_CHANGE);
                     }
                 }
             }
         }
 
-        void updatePIN() {
+        void updatePMaxVariables() {
+      //First update the PIN which is the most important part
             long longPIN;
             longPIN = strtol(Settings.PowermaxPIN, NULL, 16);
-            if ((longPIN >=0) && (longPIN <= 65535)) {
+            if ((longPIN >= 0) && (longPIN <= 65535)) {
                 //We now have a valid PIN so lets update the PMax Library
                 Powerlink_PIN_Code = longPIN;
             }
             else {
-                strncpy(Settings.PowermaxPIN, DEFAULT_UI_PASS, sizeof(Settings.PowermaxPIN));
+                strncpy(Settings.PowermaxPIN, DEFAULT_POWERMAX_PIN, sizeof(Settings.PowermaxPIN));
                 SaveSettings();
                 Powerlink_PIN_Code = 0x3622;
             }
+      //Now update slow comms and listen/enrol flags to help with some panels
+      Powerlink_ListenNotEnrol = Settings.ListenNotEnrol;
+      Powerlink_SlowComms = Settings.SlowComms;
         }
-        
-        bool sendCommandCC(int valzz) {
+
+        bool sendCommandCC(int commandvalue) {
 
             unsigned char buff[] = {0xA1, 0x00, 0x00, 0x07, 0x12, 0x34, 0x00, 0x00, 0x00, 0x00, 0x00, 0x43}; addPin(buff, 4, true);
             char str[1];
-            sprintf(str, "%#X", valzz);
-            buff[3] = valzz;
+            sprintf(str, "%#X", commandvalue);
+            buff[3] = commandvalue;
 
             unsigned short i;
             char printBuffer[MAX_BUFFER_SIZE * 3 + 3];
@@ -508,6 +465,142 @@ void LOG(const char *format, ...)
     }
 #endif
     va_end(ap);
+}
+
+void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsigned char zoneID, int zone_or_system_update) {
+
+    //Convert zone ID to text
+    char zoneIDtext[10];
+    char tempstring[26];
+    itoa(zoneID, zoneIDtext, 10);
+
+    DEBUG(LOG_NOTICE, "Creating JSON string");
+
+    if (Settings.useMQTT == false) {
+        char message_text[700];
+    message_text[0] = '\0';
+
+        //We have no MQTT details so lets send to HTTP and hence start with headers
+        strcat(message_text, "POST / HTTP/1.1\r\nHost: ");
+        sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
+        strcat(message_text, tempstring);
+        strcat(message_text, ":");
+        itoa(Settings.haPort, tempstring, 10);
+        strcat(message_text, tempstring);
+        strcat(message_text, "\r\nContent-Type: application/json;charset=utf-8\r\nServer: Visonic Alarm\r\nConnection: close\r\n\r\n");
+
+        //Now build key JSON structure
+        if (zone_or_system_update == ALARM_STATE_CHANGE) {
+            //Here we have an alarm status change (zone 0) so put the status into JSON
+            strcat(message_text, "{\"stat_str\": \"");
+            strcat(message_text, ZoneOrEvent);
+            strcat(message_text, "\",\r\n\"stat_update_from\": \"");
+            strcat(message_text, WhoOrState);
+      //For panel messages let's also add on if there are problems
+            strcat(message_text, "\",\r\n\"problem_report\": \"");
+      pm.generateProblemText();
+            strcat(message_text, alarmProblemText);
+            strcat(message_text, "\"");
+        }
+        else if (zone_or_system_update == ZONE_STATE_CHANGE) {
+            //Here we have a zone status change so put this information into JSON
+            strcat(message_text, "{\"zone_id\": \"");
+            strcat(message_text, zoneIDtext);
+            strcat(message_text, "\",\r\n\"zone_name\": \"");
+            strcat(message_text, ZoneOrEvent);
+            strcat(message_text, "\",\r\n\"zone_status\": \"");
+            strcat(message_text, WhoOrState);
+            strcat(message_text, "\"");
+        }
+
+        //Close the JSON string
+        strcat(message_text, "}\r\n");
+
+        //No MQTT details means we should use http for sending the data rather than MQTT
+        WiFiClient client;
+        char tempstring[26];
+        sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
+        if (!client.connect(tempstring, Settings.haPort)) {
+            //Serial.println("connection failed");
+            return;
+        }
+        //Send the JSON to web port
+        client.print(message_text);
+    }
+    else {
+        //Here we should be using MQTT so lets check everything is correct first
+        if (mqtt_setup_correct) {
+            //Here we have MQTT setup correctly so let's send!
+
+            char topic[25];
+            topic[0] = '\0';
+            if (zone_or_system_update == ALARM_STATE_CHANGE) {
+                strcat(topic, "alarm/panel");
+            }
+            else {
+                strcat(topic, "alarm/zone");
+                strcat(topic, zoneIDtext);
+            }
+
+            //Now publish the message with retain flag (the 'true' parameter)
+            if (zone_or_system_update == ALARM_STATE_CHANGE) {
+                char state[25];
+                strcpy(state, ZoneOrEvent);
+                if ((strcmp(state, "Disarm") == 0) || (strcmp(state, "Disarmed") == 0)) {
+                    strcpy(state, "disarmed");
+                }
+                if (strcmp(state, "Arm Home") == 0 || strcmp(state, "Quick Arm Home") == 0) {
+                    strcpy(state, "armed_home");
+                }
+                if (strcmp(state, "Arm Away") == 0 || strcmp(state, "Quick Arm Away") == 0) {
+                    strcpy(state, "armed_away");
+                }
+                if (strcmp(state, "Perimeter Alarm") == 0) {
+                    strcpy(state, "triggered");
+                }
+                mqtt.publish(topic, state, true);
+            }
+            else if (zone_or_system_update == ZONE_STATE_CHANGE) {
+                mqtt.publish(topic, WhoOrState, true);
+            }
+        }
+    }
+}
+
+void mqttcallback(char* topic, byte* payload, unsigned int length) {
+    //Got a message printed by another device, so check whether it is an arm/disarm command
+    if (strcmp(topic, "alarm/set") == 0) {
+        //if (topic == "alarm/set") {
+        char message[51];
+        int maxlength = 50;
+        if (length < 50) {
+            maxlength = length;
+        }
+        for (int i = 0; i < maxlength; i++) {
+            message[i] = (char)payload[i];
+            message[i + 1] = '\0';
+        }
+    
+        if ((strcmp(message, "ARM_AWAY") == 0) || (strcmp(message, "armaway") == 0)) {
+            handleArmAway();
+            mqtt.publish("alarm/panel", "pending", false);
+        }
+        else if ((strcmp(message, "ARM_HOME") == 0) || (strcmp(message, "armhome") == 0)) {
+            handleArmHome();
+            mqtt.publish("alarm/panel", "pending", false);
+        }
+        else if ((strcmp(message, "DISARM") == 0) || (strcmp(message, "disarm") == 0)) {
+            handleDisarm();
+        }
+        else if ((strcmp(message, "ARM_AWAY_INSTANT") == 0) || (strcmp(message, "armawayinstant") == 0)) {
+            handleArmAwayInstant();
+            mqtt.publish("alarm/panel", "pending", false);
+        }
+        else if ((strcmp(message, "ARM_HOME_INSTANT") == 0) || (strcmp(message, "armhomeinstant") == 0)) {
+            handleArmHomeInstant();
+            mqtt.publish("alarm/panel", "pending", false);
+        }
+    }
 }
 
 void handleRoot() {
@@ -620,9 +713,16 @@ void handleStatus() {
 
     client.print(JsonHeaderText);
 
+  if (Settings.ListenNotEnrol) {
+    client.print("{\"stat_str\":\"");
+    client.print(pm.GetStrPmaxSystemStatus(pm.GetSystemStatus()));
+    client.print("\",\r\n\"listen_only_mode\":\"enabled\"}\r\n");
+  }
+  else {
     WebOutput out(&client);
     pm.dumpToJson(&out);
     out.flush();
+  }
 
     client.stop();
 }
@@ -637,9 +737,12 @@ void handleRefresh() {
 
     client.print(JsonHeaderText);
     client.print("{\"stat_str\":\"");
-
     client.print(pm.GetStrPmaxSystemStatus(pm.GetSystemStatus()));
-
+    
+    client.print("\",\r\n\"problem_report\": \"");
+    pm.generateProblemText();
+    client.print(alarmProblemText);
+    
     client.print("\"}\r\n");
 
     client.stop();
@@ -689,8 +792,10 @@ void handleGetZoneNames() {
     int sizeofoutputstring = 170;
     int number_of_zones = 0;
     char outputstring[sizeofoutputstring + 1]; //Used to store the output for each zone to speed output
-    char currentzonename[70]; //Max zone name of 70 bytes hence copy in one less to ensure an ending
+    char currentzonename[50]; //Max zone name of 50 bytes hence copy in one less to ensure an ending
+    char currentzonetype[50]; //Zone type also 50 char maximum
     char numberasstring[5];
+    bool export_this_zone; // Should we export the current zone into JSON string
 
     //First update zone count to reduce checking on unused zones
     pm.UpdateZonesEnrolledCount();
@@ -709,9 +814,34 @@ void handleGetZoneNames() {
     //client.write(outputstring, strlen(outputstring));
 
     for (int ix = 1; ix <= max_zone_id_enrolled; ix++) {
-        strncpy(currentzonename, pm.getZoneName(ix), 69);
-        if (currentzonename != "Unknown") {
-            //It isnt unknown so create an output text that we can send back to the client, start by 'emptying' the char array
+        //First convert the zone ID to a char array
+        itoa(ix, numberasstring, 10);
+
+        //Then bring zone name and type into a local char array
+        if (pm.HasZoneBeenEnrolled(ix)) {
+            strncpy(currentzonename, pm.getZoneName(ix), 49);
+            strncpy(currentzonetype, pm.getZoneSensorType(ix), 49);
+            export_this_zone = true;
+        }
+        else if (pm.HasZoneBeenHeardFrom(ix) > 0) {
+            //Here we have heard from a zone but it has failed to enrol, so create some zone info using simple format
+            strncpy(currentzonename, "Zone ", 49);
+            strcat(currentzonename, numberasstring);
+            if (pm.HasZoneBeenHeardFrom(ix) == CONTACT_ZONE) {
+                strncpy(currentzonetype, "Magnet", 49);
+            }
+            else {
+                strncpy(currentzonetype, "Motion", 49);
+            }
+            export_this_zone = true;
+        }
+        else {
+            export_this_zone = false;
+        }
+
+        if (export_this_zone) {
+            //Its a zone with a name and type, so create an output text that we can send back to the client, start by 'emptying' the char array
+
             outputstring[0] = '\0';
             //Add a comma if we have already got one entry
             if (number_of_zones > 0) {
@@ -719,12 +849,11 @@ void handleGetZoneNames() {
             }
             //Now fill the remaining information about zone id/name/type
             strncat(outputstring, "{\"zoneid\":", _max(0, sizeofoutputstring - strlen(outputstring)));
-            itoa(ix, numberasstring, 10);
             strncat(outputstring, numberasstring, _max(0, sizeofoutputstring - strlen(outputstring))); //.c_str()
             strncat(outputstring, ",\r\n\"zonename\":\"", _max(0, sizeofoutputstring - strlen(outputstring)));
             strncat(outputstring, currentzonename, _max(0, sizeofoutputstring - strlen(outputstring)));
             strncat(outputstring, "\",\r\n\"zonetype\":\"", _max(0, sizeofoutputstring - strlen(outputstring)));
-            strncat(outputstring, pm.getZoneSensorType(ix), _max(0, sizeofoutputstring - strlen(outputstring)));
+            strncat(outputstring, currentzonetype, _max(0, sizeofoutputstring - strlen(outputstring)));
             strncat(outputstring, "\"}\r\n", _max(0, sizeofoutputstring - strlen(outputstring)));
             client.print(outputstring);
             number_of_zones++;
@@ -841,13 +970,13 @@ void handleConfig() {
         client.print("\",\r\n");
         mqtt_setup_correct = false;
     }
-    
+
     //If we have Powermax PIN then update as needed
     if (server.hasArg("powermax_pin")) {
         //Update setting and ensure it is null terminated
         strncpy(Settings.PowermaxPIN, server.arg("powermax_pin").c_str(), sizeof(Settings.PowermaxPIN));
-        Settings.PowermaxPIN[sizeof(Settings.PowermaxPIN)-1] = '\0';
-        pm.updatePIN();
+        Settings.PowermaxPIN[sizeof(Settings.PowermaxPIN) - 1] = '\0';
+        pm.updatePMaxVariables();
         //Respond with current value, even if not needing an update
         client.print("\"powermax_pin\":\"");
         client.print(server.arg("powermax_pin").c_str());
@@ -894,6 +1023,19 @@ void handleAlarm() {
                 digitalWrite(tempnumber, LOW);
             }
         }
+        else if (server.arg("method") == "IO") {
+            //Found word IO so trigger default pin changes (one high and one low)
+            activatedPinA = 99;
+      userPinResetTime = millis();
+      //Make pin 12 go low/off after first making it an output (D6 on Wemos)
+            digitalWrite(12, HIGH);
+            pinMode(12, OUTPUT);
+            digitalWrite(12, LOW);
+      //Make pin 7 go high/on after first making it an output (D4 on Wemos)
+            digitalWrite(4, LOW);
+            pinMode(4, OUTPUT);
+            digitalWrite(4, HIGH);
+        }
         else if (server.arg("method") == "Serial") {
             //Found word serial so send serial trigger to alarm
             handleTriggerAlarm();
@@ -926,7 +1068,14 @@ void handleArmHome() {
 
 void handleDisarm() {
     DEBUG(LOG_NOTICE, "Disarm command received from Web");
-    pm.sendCommand(Pmax_DISARM);
+    
+    //If we are already disarmed (i.e. cancelled arming command) then lets send an update message that we are still disarmed rather than pending
+    if ((strcmp(pm.GetStrPmaxSystemStatus(pm.GetSystemStatus()), "Exit Delay") == 0) || (strcmp(pm.GetStrPmaxSystemStatus(pm.GetSystemStatus()), "Disarmed") == 0)) {
+        SendJSONMessage("Disarm", "Arming Cancelled", 0, ALARM_STATE_CHANGE);
+    }
+
+  pm.sendCommand(Pmax_DISARM);
+
 }
 
 void handleArmAwayInstant() {
@@ -1016,14 +1165,16 @@ void handleAdvanced() {
     String usepassword = server.arg("usepassword");
     String uipassword = server.arg("uipassword");
     String usestatic = server.arg("usestatic");
-    String ip = server.arg("ip");
-    String gateway = server.arg("gateway");
-    String subnet = server.arg("subnet");
+    String staticip = server.arg("staticip");
+    String staticgateway = server.arg("staticgateway");
+    String staticsubnet = server.arg("staticsubnet");
     String usemqtt = server.arg("usemqtt");
     String mqttuser = server.arg("mqttuser");
     String mqttpass = server.arg("mqttpass");
     String apwhennowifi = server.arg("apwhennowifi");
     String powermaxpin = server.arg("powermaxpin");
+    String listennotenrol = server.arg("listennotenrol");
+    String slowcomms = server.arg("slowcomms");
 
     if (haip.length() != 0)
     {
@@ -1051,16 +1202,22 @@ void handleAdvanced() {
         Settings.useStatic = (usestatic == "yes");
     }
 
-    if (ip.length() >= 0 && subnet.length() >= 0 && gateway.length() >= 0)
+    if (staticip.length() != 0)
     {
-        ip.toCharArray(tmpString, 26);
+        staticip.toCharArray(tmpString, 26);
         str2ip(tmpString, Settings.IP);
-        subnet.toCharArray(tmpString, 26);
+    }
+    if (staticsubnet.length() != 0)
+    {
+        staticsubnet.toCharArray(tmpString, 26);
         str2ip(tmpString, Settings.Subnet);
-        gateway.toCharArray(tmpString, 26);
+    }
+    if (staticgateway.length() != 0)
+    {
+        staticgateway.toCharArray(tmpString, 26);
         str2ip(tmpString, Settings.Gateway);
     }
-
+    
     if (usemqtt.length() != 0)
     {
         Settings.useMQTT = (usemqtt == "yes");
@@ -1089,14 +1246,26 @@ void handleAdvanced() {
     {
         Settings.APWhenNoWiFi = (apwhennowifi == "yes");
     }
-    
+
     if (powermaxpin.length() == 4)
-    //Need a four character pin to convert to a 4 digit hex code
+        //Need a four character pin to convert to a 4 digit hex code
     {
         //Save the new PIN code, ensure it is null terminated and send to Powermax
         strncpy(Settings.PowermaxPIN, powermaxpin.c_str(), sizeof(Settings.PowermaxPIN));
-        Settings.PowermaxPIN[sizeof(Settings.PowermaxPIN)-1] = '\0';
-        pm.updatePIN();
+        Settings.PowermaxPIN[sizeof(Settings.PowermaxPIN) - 1] = '\0';
+        pm.updatePMaxVariables();
+    }
+
+    if (listennotenrol.length() != 0)
+    {
+        Settings.ListenNotEnrol = (listennotenrol == "yes");
+        pm.updatePMaxVariables();
+    }
+
+    if (slowcomms.length() != 0)
+    {
+        Settings.SlowComms = (slowcomms == "yes");
+        pm.updatePMaxVariables();
     }
 
     SaveSettings();
@@ -1179,15 +1348,15 @@ void handleAdvanced() {
     reply += F(">No");
     reply += F("</input>");
 
-    reply += F("<TR><TD>Static IP:<TD><input type='text' name='ip' value='");
+    reply += F("<TR><TD>Static IP:<TD><input type='text' name='staticip' value='");
     sprintf_P(str, PSTR("%u.%u.%u.%u"), Settings.IP[0], Settings.IP[1], Settings.IP[2], Settings.IP[3]);
     reply += str;
     reply += F("'>");
-    reply += F("<TR><TD>Static Subnet:<TD><input type='text' name='subnet' value='");
+    reply += F("<TR><TD>Static Subnet:<TD><input type='text' name='staticsubnet' value='");
     sprintf_P(str, PSTR("%u.%u.%u.%u"), Settings.Subnet[0], Settings.Subnet[1], Settings.Subnet[2], Settings.Subnet[3]);
     reply += str;
     reply += F("'>");
-    reply += F("<TR><TD>Static Gateway:<TD><input type='text' name='gateway' value='");
+    reply += F("<TR><TD>Static Gateway:<TD><input type='text' name='staticgateway' value='");
     sprintf_P(str, PSTR("%u.%u.%u.%u"), Settings.Gateway[0], Settings.Gateway[1], Settings.Gateway[2], Settings.Gateway[3]);
     reply += str;
     reply += F("'>");
@@ -1226,14 +1395,42 @@ void handleAdvanced() {
     }
     reply += F(">No");
     reply += F("</input>");
-    
+
     reply += F("<TR><TD>Powermax PIN (default 3622):<TD><input type='text' name='powermaxpin' value='");
     reply += Settings.PowermaxPIN;
     reply += F("'>");
     reply += F("<TR><TD>Entering a Master/Installer PIN that is already registered in the Powermax may help the Wemos enrol");
     reply += F("<TR><TD>Normally it is best to this keep separate from your Master PIN. For some rare panels you should enter your");
-    reply += F("<TR><TD>Master PIN here to get this working... Changing this should only be done after several pairing attempts");
+    reply += F("<TR><TD>User PIN here to get this working... Changing this should only be done after several pairing attempts");
     reply += F("<TR><TD>using the default 3622. You may need to reboot after changing PIN");
+
+    reply += F("<TR><TD>Listen only mode (dont try to enrol - only set to true if you have Powermaster or exceptional models):<TD>");
+    reply += F("<input type='radio' name='listennotenrol' value='yes'");
+    if (Settings.ListenNotEnrol) {
+        reply += F(" checked ");
+    }
+    reply += F(">Yes");
+    reply += F("</input>");
+    reply += F("<input type='radio' name='listennotenrol' value='no'");
+    if (!Settings.ListenNotEnrol) {
+        reply += F(" checked ");
+    }
+    reply += F(">No");
+    reply += F("</input>");
+
+    reply += F("<TR><TD>Slow comms mode (for very very old models):<TD>");
+    reply += F("<input type='radio' name='slowcomms' value='yes'");
+    if (Settings.SlowComms) {
+        reply += F(" checked ");
+    }
+    reply += F(">Yes");
+    reply += F("</input>");
+    reply += F("<input type='radio' name='slowcomms' value='no'");
+    if (!Settings.SlowComms) {
+        reply += F(" checked ");
+    }
+    reply += F(">No");
+    reply += F("</input>");
 
     reply += F("<TR><TD><input type=\"button\" value=\"Go back\" onclick=\"history.back()\"><TD><input class=\"button-link\" type='submit' value='Submit'>");
     reply += F("</table></form>");
@@ -1281,6 +1478,7 @@ void setup(void) {
     digitalWrite(13, HIGH);
     digitalWrite(14, HIGH);
     digitalWrite(0, HIGH);
+    digitalWrite(4, LOW);
 
     //Read settings from SPIFFS, increase reset counter and save new reset counter
     LoadSettings();
@@ -1319,6 +1517,11 @@ void setup(void) {
         Settings.resetCounter = DEFAULT_RESET_COUNTER;
         Settings.settingsVersion = 100;
         strncpy(Settings.PowermaxPIN, DEFAULT_POWERMAX_PIN, sizeof(Settings.PowermaxPIN));
+    }
+    if (Settings.settingsVersion < 101) {
+        Settings.ListenNotEnrol = DEFAULT_LISTEN_NOT_ENROL;
+        Settings.SlowComms = DEFAULT_SLOW_COMMS;
+        Settings.settingsVersion = 101;
     }
 
     Settings.resetCounter = 0;
@@ -1470,7 +1673,7 @@ void setup(void) {
     // Add service to MDNS-SD
     MDNS.addService("http", "tcp", 80);
 
-    //We set up serial at the end of the sketch as connecting to WiFi after Serial is running can cause crashes
+    //We set up serial at the end of the sketch as connecting to WiFi after Serial is running sometimes causes crashes
     Serial.begin(9600); //open serial ready to connect to PowerMax interface
     //New serial1 code - it will work as TX only on D8 (pin13)
     Serial1.begin(57600);
@@ -1484,7 +1687,7 @@ void setup(void) {
     //if you have a fast board (like PowerMax Complete) you can pass 0 to init function like this: pm.init(0);
     //this will speed up the boot process, keep it as it is, if you have issues downloading the settings from the board.
     //Also ensure Powermax sees the latest PIN from the Settings storage
-    pm.updatePIN();
+    pm.updatePMaxVariables();
     pm.init();
 }
 
@@ -1802,7 +2005,8 @@ void loop(void) {
                         mqtt_connect_fail_count = 0;
                         mqtt.subscribe("alarm/set");
                         mqtt.publish("alarm/panel", "alarm connected", false);
-                    } else {
+                    }
+                    else {
                         //Hmm, failed, not much we can do here as no serial to output to - could reset details but not good while testing
                         mqtt_connect_fail_count = mqtt_connect_fail_count++;
                     }
@@ -1811,7 +2015,18 @@ void loop(void) {
         }
         //This loop part is where we will actually process anything posted there by another device
         if ((mqtt_setup_correct) && (mqtt_connect_fail_count < 5)) {
-            mqtt.loop();
+            boolean isconnected = false;
+            isconnected = mqtt.loop();
+            if (!isconnected) {
+                //We have dropped connection so try to reconnect
+                if (mqtt.connect("ESP8266Client", Settings.MQTTUser, Settings.MQTTPass )) {
+                    mqtt_connect_fail_count = 0;
+                    mqtt.subscribe("alarm/set");
+                }
+                else {
+                    mqtt_connect_fail_count = mqtt_connect_fail_count++;
+                }
+            }
         }
     }
 
@@ -1819,6 +2034,12 @@ void loop(void) {
     if (userPinResetTime > 0) {
         if ((millis() - userPinResetTime >= 5000)) {
             userPinResetTime = 0;
+            if (activatedPinA == 99) {
+        //This is for default (IO) alarm triggering (12 and 4 mean D6 and D4 respectively)
+                digitalWrite(12, HIGH);
+                digitalWrite(4, LOW);
+                activatedPinA = -1;
+            }
             if (activatedPinA != -1) {
                 digitalWrite(activatedPinA, HIGH);
                 activatedPinA = -1;
@@ -1831,12 +2052,21 @@ void loop(void) {
     }
 
     static unsigned long lastMsg = 0;
+  static unsigned int MessageSeparation = 300;
     if (serialHandler(&pm) == true)
     {
         lastMsg = millis();
     }
 
-    if (millis() - lastMsg > 300 || millis() < lastMsg) //we ensure a small delay between commands, as it can confuse the alarm (it has a slow CPU)
+
+  if (Settings.SlowComms) {
+    MessageSeparation = 700;
+  }
+  else {
+    MessageSeparation = 300;
+  }
+    
+    if (millis() - lastMsg > MessageSeparation || millis() < lastMsg) //we ensure a small delay between commands, as it can confuse the alarm (it has a slow CPU)
     {
         pm.sendNextCommand();
     }
@@ -1908,6 +2138,7 @@ unsigned long os_getCurrentTimeSec()
         wrapCnt++;
     }
 
+  lastVal = currentVal;
     unsigned long seconds = currentVal / 1000;
 
     //millis will wrap each 50 days, as we are interested only in seconds, let's keep the wrap counter
