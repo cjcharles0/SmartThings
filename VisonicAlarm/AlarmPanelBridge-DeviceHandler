@@ -13,8 +13,8 @@
  *  Alarm Bridge Controller
  *
  *  Author: Chris Charles (cjcharles0)
- *  Date: 2019-05-13
- *  Version: 1.05
+ *  Date: 2019-06-14
+ *  Version: 1.06
  */
 
 import groovy.json.JsonSlurper
@@ -445,18 +445,19 @@ def parse(description) {
 				log.debug "Exit Delay Status found"
 				break
  
-			case ["Delay Alarm", "Confirm Alarm"]:
+			case ["Interior Alarm", "Perimeter Alarm", "Delay Alarm", "24h Silent Alarm", "24h Audible Alarm", "Tamper Alarm", "Panic From Keyfob", "Panic From Control Panel", "Duress", "Confirm Alarm"]:
 				sendEvent(name: "disarm", value: "inactive", displayed: false)
 				sendEvent(name: "armaway", value: "inactive", displayed: false)
 				sendEvent(name: "armhome", value: "inactive", displayed: false)
-				sendEvent(name: "status", value: "alarm", displayed: false)
+				sendEvent(name: "status", value: "alarm")
 				sendEvent(name: "alarm", value: "both", displayed: false)
 				log.debug "Alarm Status found - Uh Oh!!"
 				break
 
 			default:
 				log.debug "Unknown Alarm state received = ${result.stat_str}"
-				break
+				sendEvent(name: "problemtext", value: "Unknown ${result.stat_str}", displayed: true)
+                break
 		}
 	}
 	
