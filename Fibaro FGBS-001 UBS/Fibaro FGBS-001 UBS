@@ -338,18 +338,21 @@ def createEvent(physicalgraph.zwave.commands.versionv1.VersionReport cmd, Map it
 def zwaveEvent(physicalgraph.zwave.commands.basicv1.BasicSet cmd) {
 	log.debug "BasicSet V1 ${cmd.inspect()}"
     def currentstate
+    def motionstate
 	if (cmd.value) {
 		currentstate = "open"
+        motionstate = "inactive"
 	} else {
     	currentstate = "closed"
+        motionstate = "active"
 	}
     createEvent(name: "contact1", value: currentstate, descriptionText: "${device.displayName} is ${currentstate}")
     try {
         def childDevice = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-ep1"}
         if (childDevice)
-        	def motionstate = (currentstate=="closed") ? "active" : "inactive"
         	childDevice.sendEvent(name: "motion", value: motionstate)
             childDevice.sendEvent(name: "contact", value: currentstate)
+            log.debug "Fibaro is ${motionstate} and ${currentstate}"
     } catch (e) {
         log.error "Couldn't find child device, probably doesn't exist...? Error: ${e}"
     }
@@ -360,11 +363,14 @@ def zwaveEvent(physicalgraph.zwave.commands.multichannelv3.MultiChannelCmdEncap 
 	def result
 	if (cmd.commandClass == 32) {
         def currentstate
+        def motionstate
 		if (cmd.parameter == [0]) {
         	currentstate = "closed"
+            motionstate = "active"
 		}
 		if (cmd.parameter == [255]) {
         	currentstate = "open"
+            motionstate = "inactive"
 		}
         log.debug "ep${cmd.sourceEndPoint} is ${currentstate}"
         //First update tile on this device
@@ -373,7 +379,6 @@ def zwaveEvent(physicalgraph.zwave.commands.multichannelv3.MultiChannelCmdEncap 
         try {
             def childDevice = getChildDevices()?.find { it.deviceNetworkId == "${device.deviceNetworkId}-ep${cmd.sourceEndPoint}"}
             if (childDevice)
-                def motionstate = (currentstate=="closed") ? "active" : "inactive"
                 childDevice.sendEvent(name: "motion", value: motionstate)
                 childDevice.sendEvent(name: "contact", value: currentstate)
         } catch (e) {
