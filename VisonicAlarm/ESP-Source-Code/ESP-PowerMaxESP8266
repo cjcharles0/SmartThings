@@ -58,8 +58,9 @@ extern "C" uint32_t _SPIFFS_block;
 #define DEFAULT_RESET_COUNTER          0
 #define RESET_LIMIT                    5
 #define DEFAULT_POWERMAX_PIN           "3622"
-#define DEFAULT_LISTEN_NOT_ENROL           false
+#define DEFAULT_LISTEN_NOT_ENROL       false
 #define DEFAULT_SLOW_COMMS             false
+#define DEFAULT_WIFI_POWER             205
 
 struct SettingsStruct
 {
@@ -78,8 +79,9 @@ struct SettingsStruct
     byte          resetCounter;
     byte          settingsVersion;
     char          PowermaxPIN[5];
-    boolean     ListenNotEnrol;
-    boolean     SlowComms;
+    boolean       ListenNotEnrol;
+    boolean       SlowComms;
+    byte          WiFiPower;
 } Settings;
 
 
@@ -331,7 +333,7 @@ class MyPowerMax : public PowerMaxAlarm
                 return false;
             }
         }
-        
+
         int HasZoneBeenHeardFrom(int zone_num) {
             if (zone_in_use[zone_num] > 0) {
                 if ((zone_in_use[zone_num] == ZE_Open) || (zone_in_use[zone_num] == ZE_Closed)) {
@@ -347,28 +349,28 @@ class MyPowerMax : public PowerMaxAlarm
         }
 
         void generateProblemText() {
-      //We have been asked to update the problem text so lets update the global char array
-      char zonenumstring[4];
-      alarmProblemText[0] = '\0';
-      for (int ix = 1; ix <= max_zone_id_enrolled; ix++) {
-        if (zone[ix].enrolled) {
-          if ((zone[ix].stat.lowBattery == true) || (zone[ix].stat.lowBattery == true)) {
-            //Here the zone is enrolled and has a problem so first check if we need a comma
-            if (strlen(alarmProblemText) > 0) {
-              strncat(alarmProblemText, ",\r\n", _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
+            //We have been asked to update the problem text so lets update the global char array
+            char zonenumstring[4];
+            alarmProblemText[0] = '\0';
+            for (int ix = 1; ix <= max_zone_id_enrolled; ix++) {
+                if (zone[ix].enrolled) {
+                    if ((zone[ix].stat.lowBattery == true) || (zone[ix].stat.lowBattery == true)) {
+                        //Here the zone is enrolled and has a problem so first check if we need a comma
+                        if (strlen(alarmProblemText) > 0) {
+                            strncat(alarmProblemText, ",\r\n", _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
+                        }
+                        //Now add zone name and problem type
+                        strncat(alarmProblemText, this->getZoneName(ix), _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
+                        strncat(alarmProblemText, " (Z", _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
+                        itoa(ix, zonenumstring, 10);
+                        strncat(alarmProblemText, zonenumstring, _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
+                        strncat(alarmProblemText, ") low batt", _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
+                    }
+                }
             }
-            //Now add zone name and problem type
-            strncat(alarmProblemText, this->getZoneName(ix), _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
-            strncat(alarmProblemText, " (Z", _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
-            itoa(ix, zonenumstring, 10);
-            strncat(alarmProblemText, zonenumstring, _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
-            strncat(alarmProblemText, ") low batt", _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
-          }
-        }
-      }
-      if (strlen(alarmProblemText) == 0) {
-        strncat(alarmProblemText, "No problems detected", _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
-      }
+            if (strlen(alarmProblemText) == 0) {
+                strncat(alarmProblemText, "No problems detected", _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
+            }
         }
 
         void CheckInactivityTimers() {
@@ -392,7 +394,7 @@ class MyPowerMax : public PowerMaxAlarm
         }
 
         void updatePMaxVariables() {
-      //First update the PIN which is the most important part
+            //First update the PIN which is the most important part
             long longPIN;
             longPIN = strtol(Settings.PowermaxPIN, NULL, 16);
             if ((longPIN >= 0) && (longPIN <= 65535)) {
@@ -404,9 +406,9 @@ class MyPowerMax : public PowerMaxAlarm
                 SaveSettings();
                 Powerlink_PIN_Code = 0x3622;
             }
-      //Now update slow comms and listen/enrol flags to help with some panels
-      Powerlink_ListenNotEnrol = Settings.ListenNotEnrol;
-      Powerlink_SlowComms = Settings.SlowComms;
+            //Now update slow comms and listen/enrol flags to help with some panels
+            Powerlink_ListenNotEnrol = Settings.ListenNotEnrol;
+            Powerlink_SlowComms = Settings.SlowComms;
         }
 
         bool sendCommandCC(int commandvalue) {
@@ -478,7 +480,7 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
 
     if (Settings.useMQTT == false) {
         char message_text[700];
-    message_text[0] = '\0';
+        message_text[0] = '\0';
 
         //We have no MQTT details so lets send to HTTP and hence start with headers
         strcat(message_text, "POST / HTTP/1.1\r\nHost: ");
@@ -496,9 +498,9 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
             strcat(message_text, ZoneOrEvent);
             strcat(message_text, "\",\r\n\"stat_update_from\": \"");
             strcat(message_text, WhoOrState);
-      //For panel messages let's also add on if there are problems
+            //For panel messages let's also add on if there are problems
             strcat(message_text, "\",\r\n\"problem_report\": \"");
-      pm.generateProblemText();
+            pm.generateProblemText();
             strcat(message_text, alarmProblemText);
             strcat(message_text, "\"");
         }
@@ -555,8 +557,10 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
                 if (strcmp(state, "Arm Away") == 0 || strcmp(state, "Quick Arm Away") == 0) {
                     strcpy(state, "armed_away");
                 }
-                if (strcmp(state, "Perimeter Alarm") == 0) {
-                    strcpy(state, "triggered");
+                if (strcmp(state, "Interior Alarm") == 0 || strcmp(state, "Perimeter Alarm") == 0 || strcmp(state, "Delay Alarm") == 0 ||
+                        strcmp(state, "24h Silent Alarm") == 0 || strcmp(state, "24h Audible Alarm") == 0 || strcmp(state, "Tamper Alarm") == 0 ||
+                        strcmp(state, "Panic From Keyfob") == 0 || strcmp(state, "Panic From Control Panel") == 0 || strcmp(state, "Duress") == 0 || strcmp(state, "Confirm Alarm") == 0) {
+                    strcpy(state, "alarm");
                 }
                 mqtt.publish(topic, state, true);
             }
@@ -580,7 +584,7 @@ void mqttcallback(char* topic, byte* payload, unsigned int length) {
             message[i] = (char)payload[i];
             message[i + 1] = '\0';
         }
-    
+
         if ((strcmp(message, "ARM_AWAY") == 0) || (strcmp(message, "armaway") == 0)) {
             handleArmAway();
             mqtt.publish("alarm/panel", "pending", false);
@@ -599,6 +603,9 @@ void mqttcallback(char* topic, byte* payload, unsigned int length) {
         else if ((strcmp(message, "ARM_HOME_INSTANT") == 0) || (strcmp(message, "armhomeinstant") == 0)) {
             handleArmHomeInstant();
             mqtt.publish("alarm/panel", "pending", false);
+        }
+        else if ((strcmp(message, "ALARM") == 0) || (strcmp(message, "alarm") == 0)) {
+            triggerIOAlarm();
         }
     }
 }
@@ -713,16 +720,16 @@ void handleStatus() {
 
     client.print(JsonHeaderText);
 
-  if (Settings.ListenNotEnrol) {
-    client.print("{\"stat_str\":\"");
-    client.print(pm.GetStrPmaxSystemStatus(pm.GetSystemStatus()));
-    client.print("\",\r\n\"listen_only_mode\":\"enabled\"}\r\n");
-  }
-  else {
-    WebOutput out(&client);
-    pm.dumpToJson(&out);
-    out.flush();
-  }
+    if (Settings.ListenNotEnrol) {
+        client.print("{\"stat_str\":\"");
+        client.print(pm.GetStrPmaxSystemStatus(pm.GetSystemStatus()));
+        client.print("\",\r\n\"listen_only_mode\":\"enabled\"}\r\n");
+    }
+    else {
+        WebOutput out(&client);
+        pm.dumpToJson(&out);
+        out.flush();
+    }
 
     client.stop();
 }
@@ -738,11 +745,11 @@ void handleRefresh() {
     client.print(JsonHeaderText);
     client.print("{\"stat_str\":\"");
     client.print(pm.GetStrPmaxSystemStatus(pm.GetSystemStatus()));
-    
+
     client.print("\",\r\n\"problem_report\": \"");
     pm.generateProblemText();
     client.print(alarmProblemText);
-    
+
     client.print("\"}\r\n");
 
     client.stop();
@@ -1024,17 +1031,8 @@ void handleAlarm() {
             }
         }
         else if (server.arg("method") == "IO") {
-            //Found word IO so trigger default pin changes (one high and one low)
-            activatedPinA = 99;
-      userPinResetTime = millis();
-      //Make pin 12 go low/off after first making it an output (D6 on Wemos)
-            digitalWrite(12, HIGH);
-            pinMode(12, OUTPUT);
-            digitalWrite(12, LOW);
-      //Make pin 7 go high/on after first making it an output (D4 on Wemos)
-            digitalWrite(4, LOW);
-            pinMode(4, OUTPUT);
-            digitalWrite(4, HIGH);
+            //Found word IO so trigger default pin change alarm
+            triggerIOAlarm();
         }
         else if (server.arg("method") == "Serial") {
             //Found word serial so send serial trigger to alarm
@@ -1050,6 +1048,21 @@ void handleAlarm() {
         return;
     }
 }
+
+void triggerIOAlarm() {
+    //Trigger default pin changes to cause an alarm (one high and one low)
+    activatedPinA = 99;
+    userPinResetTime = millis();
+    //Make pin 12 go low/off after first making it an output (D6 on Wemos)
+    digitalWrite(12, HIGH);
+    pinMode(12, OUTPUT);
+    digitalWrite(12, LOW);
+    //Make pin 7 go high/on after first making it an output (D4 on Wemos)
+    digitalWrite(4, LOW);
+    pinMode(4, OUTPUT);
+    digitalWrite(4, HIGH);
+}
+
 
 void handleTriggerAlarm() {
     DEBUG(LOG_NOTICE, "Trigger Alarm Command received from Web");
@@ -1068,13 +1081,13 @@ void handleArmHome() {
 
 void handleDisarm() {
     DEBUG(LOG_NOTICE, "Disarm command received from Web");
-    
+
     //If we are already disarmed (i.e. cancelled arming command) then lets send an update message that we are still disarmed rather than pending
     if ((strcmp(pm.GetStrPmaxSystemStatus(pm.GetSystemStatus()), "Exit Delay") == 0) || (strcmp(pm.GetStrPmaxSystemStatus(pm.GetSystemStatus()), "Disarmed") == 0)) {
         SendJSONMessage("Disarm", "Arming Cancelled", 0, ALARM_STATE_CHANGE);
     }
 
-  pm.sendCommand(Pmax_DISARM);
+    pm.sendCommand(Pmax_DISARM);
 
 }
 
@@ -1175,6 +1188,7 @@ void handleAdvanced() {
     String powermaxpin = server.arg("powermaxpin");
     String listennotenrol = server.arg("listennotenrol");
     String slowcomms = server.arg("slowcomms");
+    String wifipower = server.arg("wifipower");
 
     if (haip.length() != 0)
     {
@@ -1217,7 +1231,7 @@ void handleAdvanced() {
         staticgateway.toCharArray(tmpString, 26);
         str2ip(tmpString, Settings.Gateway);
     }
-    
+
     if (usemqtt.length() != 0)
     {
         Settings.useMQTT = (usemqtt == "yes");
@@ -1245,6 +1259,11 @@ void handleAdvanced() {
     if (apwhennowifi.length() != 0)
     {
         Settings.APWhenNoWiFi = (apwhennowifi == "yes");
+    }
+
+    if (wifipower.length() != 0)
+    {
+        Settings.WiFiPower = wifipower.toInt();
     }
 
     if (powermaxpin.length() == 4)
@@ -1396,6 +1415,10 @@ void handleAdvanced() {
     reply += F(">No");
     reply += F("</input>");
 
+    reply += F("<TR><TD>WiFi Power Level (0 = minimum, 205 = maximum (205 is default, restart ESP to set)):<TD><input type='text' name='wifipower' value='");
+    reply += Settings.WiFiPower;
+    reply += F("'>");
+
     reply += F("<TR><TD>Powermax PIN (default 3622):<TD><input type='text' name='powermaxpin' value='");
     reply += Settings.PowermaxPIN;
     reply += F("'>");
@@ -1523,6 +1546,10 @@ void setup(void) {
         Settings.SlowComms = DEFAULT_SLOW_COMMS;
         Settings.settingsVersion = 101;
     }
+    if (Settings.settingsVersion < 102) {
+        Settings.WiFiPower = DEFAULT_WIFI_POWER;
+        Settings.settingsVersion = 102;
+    }
 
     Settings.resetCounter = 0;
     SaveSettings();
@@ -1579,6 +1606,11 @@ void setup(void) {
             delay(1000);
         }
     }
+
+    //Here we will set the WiFi power based on the stored setting
+    float powerlevel;
+    powerlevel = (float)Settings.WiFiPower / 10.0;
+    WiFi.setOutputPower(powerlevel);
 
     server.on("/", handleRoot);
     server.on("/status", handleStatus);
@@ -1896,6 +1928,10 @@ bool serialHandler(PowerMaxAlarm* pm) {
     char oneByte = 0;
     while (  (os_pmComPortRead(&oneByte, 1) == 1)  )
     {
+        // wait for the preamble
+        if (commandBuffer.size == 0 && oneByte != 0x0D)
+            continue;
+
         if (commandBuffer.size < (MAX_BUFFER_SIZE - 1))
         {
             *(commandBuffer.size + commandBuffer.buffer) = oneByte;
@@ -2035,7 +2071,7 @@ void loop(void) {
         if ((millis() - userPinResetTime >= 5000)) {
             userPinResetTime = 0;
             if (activatedPinA == 99) {
-        //This is for default (IO) alarm triggering (12 and 4 mean D6 and D4 respectively)
+                //This is for default (IO) alarm triggering (12 and 4 mean D6 and D4 respectively)
                 digitalWrite(12, HIGH);
                 digitalWrite(4, LOW);
                 activatedPinA = -1;
@@ -2052,20 +2088,20 @@ void loop(void) {
     }
 
     static unsigned long lastMsg = 0;
-  static unsigned int MessageSeparation = 300;
+    static unsigned int MessageSeparation = 300;
     if (serialHandler(&pm) == true)
     {
         lastMsg = millis();
     }
 
 
-  if (Settings.SlowComms) {
-    MessageSeparation = 700;
-  }
-  else {
-    MessageSeparation = 300;
-  }
-    
+    if (Settings.SlowComms) {
+        MessageSeparation = 700;
+    }
+    else {
+        MessageSeparation = 300;
+    }
+
     if (millis() - lastMsg > MessageSeparation || millis() < lastMsg) //we ensure a small delay between commands, as it can confuse the alarm (it has a slow CPU)
     {
         pm.sendNextCommand();
@@ -2138,7 +2174,7 @@ unsigned long os_getCurrentTimeSec()
         wrapCnt++;
     }
 
-  lastVal = currentVal;
+    lastVal = currentVal;
     unsigned long seconds = currentVal / 1000;
 
     //millis will wrap each 50 days, as we are interested only in seconds, let's keep the wrap counter
