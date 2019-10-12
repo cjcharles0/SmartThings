@@ -260,10 +260,10 @@ def processNeoResponse(result) {
         if (result.containsKey("STANDBY")) {
         	//Update standby/away status
             if (result.STANDBY == false) {
-                cmds << sendEvent(name: "away", value: "off")
+                cmds << sendEvent(name: "away", value: "off", displayed: true)
             }
             else {
-                cmds << sendEvent(name: "away", value: "on")
+                cmds << sendEvent(name: "away", value: "on", displayed: true)
             }
         }
         if (result.containsKey("CURRENT_FLOOR_TEMPERATURE")) {
@@ -301,14 +301,14 @@ def processNeoResponse(result) {
                         	//Update the on/off string here, but not needed as shouldnt be relevant
                             if (result.TIMER) {
                             	onoffstring = "ON"
-                                cmds << sendEvent(name: "thermostatOperatingState", value: "heating")
+                                cmds << sendEvent(name: "thermostatOperatingState", value: "heating", displayed: true)
                             }
                             else {
                             	 onoffstring = "OFF"
-                                 cmds << sendEvent(name: "thermostatOperatingState", value: "idle")
+                                 cmds << sendEvent(name: "thermostatOperatingState", value: "idle", displayed: true)
                             }
                         }
-						cmds << sendEvent(name: "temperature", value: onoffstring)
+						cmds << sendEvent(name: "temperature", value: onoffstring, displayed: true)
                         cmds << sendEvent(name: "thermostatSetpoint", value: onoffstring, displayed: false)
                         cmds << sendEvent(name: "heatingSetpoint", value: onoffstring, displayed: false)
                         cmds << sendEvent(name: "coolingSetpoint", value: onoffstring, displayed: false)
@@ -328,6 +328,13 @@ def processNeoResponse(result) {
                         }
                     }
                 }
+                else {
+                	//Here we should check that the +/- temp buttons are set to +/- rather than on/off (sometimes heatmiser messes this up)
+                    if (device.currentValue("raisethermostatSetpoint") == "+1°C") {
+                        cmds << sendEvent(name: "raisethermostatSetpoint", value: "+1°C", displayed: false)
+                        cmds << sendEvent(name: "lowerthermostatSetpoint", value: "-1°C", displayed: false)
+                    }
+                }
 			}
 			if (result.STAT_MODE.containsKey("THERMOSTAT")) {
                 if (result.STAT_MODE.THERMOSTAT == true) {
@@ -335,9 +342,9 @@ def processNeoResponse(result) {
 					if (result.containsKey("HEATING")) {
                         //Update the tiles to show that it is currently calling for heat from the boiler
                         if (result.HEATING) {
-                            cmds << sendEvent(name: "thermostatOperatingState", value: "heating")
+                            cmds << sendEvent(name: "thermostatOperatingState", value: "heating", displayed: true)
                         } else {
-                            cmds << sendEvent(name: "thermostatOperatingState", value: "idle")
+                            cmds << sendEvent(name: "thermostatOperatingState", value: "idle", displayed: true)
                         }
                     }
                     if (result.containsKey("HOLD_TIME") && result.containsKey("HOLD_TEMPERATURE") && result.containsKey("NEXT_ON_TIME")) {
@@ -368,7 +375,7 @@ def processNeoResponse(result) {
                     if (result.containsKey("CURRENT_TEMPERATURE") && result.containsKey("CURRENT_SET_TEMPERATURE")) {
                         //Got a temperature so update the tile
                         log.debug "Temperature is: " + result.CURRENT_TEMPERATURE + " - Setpoint is: " + result.CURRENT_SET_TEMPERATURE + " - Calling for heat? " + result.HEATING
-                        cmds << sendEvent(name: "temperature", value: result.CURRENT_TEMPERATURE)
+                        cmds << sendEvent(name: "temperature", value: result.CURRENT_TEMPERATURE, displayed: true)
 
                         //Got a set temperature so update it if above 6 (legacy from old firmware setting 5 for away mode, but keeping it for now)
                         def settempint = result.CURRENT_SET_TEMPERATURE.toBigDecimal().toInteger() + 0 //.toBigDecimal().toInteger()
