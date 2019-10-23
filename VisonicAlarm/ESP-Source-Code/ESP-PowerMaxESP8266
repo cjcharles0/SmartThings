@@ -8,7 +8,6 @@
 #include <ESP8266SSDP.h>
 #include <ESP8266mDNS.h>
 #include <ArduinoOTA.h>
-
 #include <PubSubClient.h>
 
 //////////////////// IMPORTANT DEFINES, ADJUST TO YOUR NEEDS //////////////////////
@@ -23,7 +22,7 @@
 #define PM_ENABLE_WEB_UPDATES
 
 //This enables flashing of ESP via OTA (WiFI)
-#define PM_ENABLE_OTA_UPDATES
+//#define PM_ENABLE_OTA_UPDATES
 
 //This enables ESP to send a multicast UDP packet on LAN with notifications
 //Any device on your LAN can register to listen for those messages, and will get a status of the alarm
