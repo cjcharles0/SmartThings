@@ -18,7 +18,7 @@
 //This enables control over your system, when commented out, alarm is 'read only' (esp will read the state, but will never arm/disarm)
 #define PM_ALLOW_CONTROL
 
-//This enables flashing of ESP via OTA (WiFI)
+//This enables flashing of ESP via Webpage (WiFI)
 #define PM_ENABLE_WEB_UPDATES
 
 //This enables flashing of ESP via OTA (WiFI)
@@ -562,6 +562,11 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
                     strcpy(state, "alarm");
                 }
                 mqtt.publish(topic, state, true);
+
+                //Also we will publish the alarm problem text here
+                strcpy(topic, "alarm/problem_report");
+                pm.generateProblemText();
+                mqtt.publish(topic, alarmProblemText, true);
             }
             else if (zone_or_system_update == ZONE_STATE_CHANGE) {
                 mqtt.publish(topic, WhoOrState, true);
