@@ -48,6 +48,15 @@ metadata {
 		command "childTimerOff"
 		command "childTimerHoldOn"
 		command "childTimerHoldOff"
+		command "childHolidayOn"
+		command "childCancelHoliday"
+        command "increaseHours"
+        command "decreaseHours"
+        command "increaseDays"
+        command "decreaseDays"
+        command "refreshHolidayButtonText"
+        command "holidayOnOrCancel"
+        
         
         command "testcommand"
         
@@ -100,6 +109,23 @@ metadata {
         	state "off", label:'Set all Thermostats to Away', action:"setAllAwayOn"
 			state "on", label:'Thermostats Away, Press to cancel', action:"setAllAwayOff"
 		}
+        
+        standardTile("increaseHours", "device.increaseHours", width: 1, height: 1, decoration: "flat") {
+			state "default", action:"increaseHours", label:'+1h\r\nHoliday'
+		}
+        standardTile("decreaseHours", "device.decreaseHours", width: 1, height: 1, decoration: "flat") {
+			state "default", action:"decreaseHours", label:'-1h\r\nHoliday'
+		}
+        standardTile("increaseDays", "device.increaseDays", width: 1, height: 1, decoration: "flat") {
+			state "default", action:"increaseDays", label:'+1d\r\nHoliday'
+		}
+        standardTile("decreaseDays", "device.decreaseDays", width: 1, height: 1, decoration: "flat") {
+			state "default", action:"decreaseDays", label:'-1d\r\nHoliday'
+		}
+        standardTile("holidayOnOrCancel", "device.holidayOnOrCancel", width: 2, height: 1, decoration: "flat") {
+			state "default", action:"holidayOnOrCancel", label:'${currentValue}'
+		}
+        
         standardTile("testcommand", "device.testcommand", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
 			state "testcommand", label:'Create Test Device', action:"testcommand"
 		}
@@ -109,8 +135,8 @@ metadata {
     details(["lastcommand",
              "stip", "neoip", "brip",
              "refreships", "configure", "getthermostats", "removethermostats",
-             "refresh", "allaway",
-             "testcommand"
+             "holidayOnOrCancel", "decreaseHours", "increaseHours", "decreaseDays", "increaseDays",
+             "allaway", "refresh" //, "testcommand"
              ])
 }
 
@@ -169,6 +195,8 @@ def uninstalled() {
 def updated() {
 	log.debug "updated()"
     refreshipaddresses()
+    state.holidaydays = 0
+    state.holidayhours = 0
     if (enable_debug) {
     	state.debug = true
         log.debug "Debug print information enabled"
@@ -305,33 +333,40 @@ def childSetFrost(String temp, String dni) {
     log.debug "Requesting set frost at ${temp} degrees for child ${deviceid}"
 	getAction("/neorelay?device=${dni}&command={\"SET_FROST\":[\"${temp}\",\"${deviceid}\"]}")
 }
-
 def childTimerOn(String dni) {
 	//Send Child Timer On command
     def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
     log.debug "Requesting timer on for child ${deviceid}"
     getAction("/neorelay?device=${dni}&command={\"TIMER_ON\":\"${deviceid}\"}")
 }
-
 def childTimerOff(String dni) {
 	//Send Child Timer Off command
     def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
     log.debug "Requesting timer off for child ${deviceid}"
     getAction("/neorelay?device=${dni}&command={\"TIMER_OFF\":\"${deviceid}\"}")
 }
-
 def childTimerHoldOn(String minutes, String dni) {
 	//Send Child Timer Hold On command
     def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
     log.debug "Requesting timer hold on for child ${deviceid}"
     getAction("/neorelay?device=${dni}&command={\"TIMER_HOLD_ON\":[${minutes},\"${deviceid}\"]}")
 }
-
 def childTimerHoldOff(String minutes, String dni) {
 	//Send Child Timer Hold Off command
     def deviceid = dni.replaceAll("neostat", "").replaceAll("-", " ")
     log.debug "Requesting timer hold off for child ${deviceid}"
     getAction("/neorelay?device=${dni}&command={\"TIMER_HOLD_OFF\":[${minutes},\"${deviceid}\"]}")
+}
+def childHolidayOn(String hhmmssddmmyyy, String dni) {
+	def dateTime = new Date()
+	def currenttimestamp = dateTime.format("HHmmssddMMyyyy", location.timeZone)
+	log.debug "Setting Holiday mode from ${currenttimestamp} to ${neohubtimestamp}"
+	getAction("/neorelay?device=hubcommand&command={\"HOLIDAY\":[\"${currenttimestamp}\",\"${hhmmssddmmyyy}\"]}")
+}
+def childCancelHoliday(String dni) {
+	//Send request to cancel holiday
+    log.debug "Cancel holiday mode"
+    getAction("/neorelay?device=hubcommand&command={\"CANCEL_HOLIDAY\":0}")
 }
 
 // This function receives the response from the NeoHub bridge and updates things, or passes the response to an individual thermostat
@@ -419,6 +454,77 @@ def parse(description) {
         }
     }
     return cmds
+}
+
+def increaseHours() {
+    if (state.holidayhours < 23) {
+    	state.holidayhours = state.holidayhours + 1
+    }
+    else {
+    	state.holidayhours = 0
+        state.holidaydays = state.holidaydays + 1
+    }
+    refreshHolidayButtonText()
+}
+def decreaseHours() {
+    if (state.holidayhours > 0) {
+    	state.holidayhours = state.holidayhours - 1
+    }
+    else if (state.holidaydays > 0) {
+    	state.holidayhours = 23
+        state.holidaydays = state.holidaydays - 1
+    }
+    refreshHolidayButtonText()
+}
+def increaseDays() {
+    if (state.holidaydays >= 0) {
+    	state.holidaydays = state.holidaydays + 1
+    }
+    else {
+    	state.holidaydays = 0
+    }
+    refreshHolidayButtonText()
+}
+def decreaseDays() {
+    if (state.holidaydays >= 1) {
+    	state.holidaydays = state.holidaydays - 1
+    }
+    else {
+        state.holidaydays = 0
+        state.holidayhours = 0
+    }
+    refreshHolidayButtonText()
+}
+def refreshHolidayButtonText() {
+    def cmds = []
+	if (state.holidaydays == null) {state.holidaydays = 0}
+	if (state.holidayhours == null) {state.holidayhours = 0}
+    def dateTime = new Date()
+    def timestamp = new GregorianCalendar( dateTime.year, dateTime.month, dateTime.date + state.holidaydays, dateTime.hours + state.holidayhours, dateTime.minutes, 0, 0 ).time
+    def finishtimestamp = timestamp.format("HH:mm dd-MMM", location.timeZone) //formatted like this for neohub HHmmssddMMyyyy
+    cmds << sendEvent(name: "holidayOnOrCancel", value: "Press to set Holiday\r\n until ${finishtimestamp}", isStateChange: true)
+    return cmds
+}
+def holidayOnOrCancel() {
+	//Any function which makes a getAction request cannot return a set of tile update sendEvent's through a cmd style array
+	if (state.holidaydays == null) {state.holidaydays = 0}
+	if (state.holidayhours == null) {state.holidayhours = 0}
+    def dateTime = new Date()
+    def currenttimestamp = dateTime.format("HHmmssddMMyyyy", location.timeZone)
+    def timestamp = new GregorianCalendar( dateTime.year+1900, dateTime.month, dateTime.date + state.holidaydays, dateTime.hours + state.holidayhours, dateTime.minutes, 0, 0 ).time
+    def uitimestamp = timestamp.format("HH:mm dd-MMM", location.timeZone)
+    def neohubtimestamp = timestamp.format("HHmmssddMMyyyy", location.timeZone)
+    
+    if (device.currentValue("holidayOnOrCancel").substring(0,5) == "Press") {
+    	//Trying to set holiday timer so lets do it
+        sendEvent(name: "holidayOnOrCancel", value: "Holiday until ${uitimestamp}\r\nPress to cancel", isStateChange: true)
+        childHolidayOn(neohubtimestamp, "hubcommand")
+    }
+    else {
+    	//Likely trying to cancel holiday timer so remove holidays
+        refreshHolidayButtonText()
+        childCancelHoliday("hubcommand")
+    }
 }
 
 //These functions are helper functions to talk to the NeoHub Bridge
