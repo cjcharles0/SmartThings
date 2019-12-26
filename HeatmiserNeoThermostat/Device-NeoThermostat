@@ -67,6 +67,7 @@ metadata {
 		command "setTimerOff" // Custom
         command "away" // Custom
 		command "awayOff" // Custom
+		command "holidayOff" // Custom
 
         attribute "holdtime","string" // Custom for how long to hold for
 		attribute "nextSetpointText", "string" // Custom for text display
@@ -162,9 +163,10 @@ metadata {
         valueTile("floortemp", "floortemp", decoration: "flat", width: 1, height: 1) {
     		state "floortemp", label:'Floor Temp\r\n${currentValue}'
 		}
-        standardTile("away", "away", inactiveLabel: false, decoration: "flat", width: 2, height: 1) {
+        standardTile("awayholiday", "awayholiday", inactiveLabel: false, decoration: "flat", width: 2, height: 1) {
 			state "off", action:"away", label:'Set Away / Standby' // icon TBC
-			state "on", action:"awayOff", label:'Away Activated\r\nPress to cancel' // icon TBC
+			state "away", action:"awayOff", label:'Away Activated\r\nPress to cancel' // icon TBC
+			state "holiday", action:"holidayOff", label:'Holiday - Press\r\nto cancel all' // icon TBC
 		}
 		standardTile("refresh", "device.refresh", inactiveLabel: false, decoration: "flat", width: 1, height: 1) {
 			state "default", action:"refresh", label: "Refresh", icon:"st.secondary.refresh"
@@ -177,7 +179,7 @@ metadata {
 				"lowerthermostatSetpoint", "manualSetpoint", "raisethermostatSetpoint",
                 "decreaseTime", "holdtime", "increaseTime", 
 				"nextSetpointText", "setTempHold", "refresh", 
-                "away", "floortemp", "statusText"])
+                "awayholiday", "floortemp", "statusText"])
 	}
 }
 
@@ -257,13 +259,16 @@ def processNeoResponse(result) {
         cmds << sendEvent(name: "statusText", value: "Last refreshed info at ${updateddatetime}", displayed: false, isStateChange: true)
         
         //Now process information shared between all devices including standby/away and Floor Temp
-        if (result.containsKey("STANDBY")) {
+        if (result.containsKey("STANDBY") && result.containsKey("HOLIDAY")) {
         	//Update standby/away status
-            if (result.STANDBY == false) {
-                cmds << sendEvent(name: "away", value: "off", displayed: true)
+            if (result.STANDBY == false && result.HOLIDAY == false) {
+                cmds << sendEvent(name: "awayholiday", value: "off", displayed: true)
             }
-            else {
-                cmds << sendEvent(name: "away", value: "on", displayed: true)
+            else if (result.STANDBY == true) {
+                cmds << sendEvent(name: "awayholiday", value: "away", displayed: true)
+            }
+            else if (result.HOLIDAY == true) {
+                cmds << sendEvent(name: "awayholiday", value: "holiday", displayed: true)
             }
         }
         if (result.containsKey("CURRENT_FLOOR_TEMPERATURE")) {
@@ -359,6 +364,12 @@ def processNeoResponse(result) {
                             else {
                                 //Otherwise add on the time for next change
                                 statusTextmsg = statusTextmsg + result.NEXT_ON_TIME.reverse().take(5).reverse()
+                            }
+                            if (result.containsKey("HOLIDAY") && result.containsKey("STANDBY")) {
+                            	//If we have a holiday flag set to true, and a standby flag set to false then display remaining holiday (rounded down)
+                            	if ((result.HOLIDAY == true) && (result.STANDBY == false)) {
+                            		statusTextmsg = statusTextmsg + "\r\nHoliday for " + result.HOLIDAY_DAYS + " more days"
+                                }
                             }
                             //Now send the update
                             cmds << sendEvent(name: "nextSetpointText", value: statusTextmsg)
@@ -488,7 +499,7 @@ def away() {
 	def cmds = []
 	if (state.debug) log.debug "${device.label}: away()"
 	parent.childFrostOn(device.deviceNetworkId)
-    cmds << sendEvent(name: "away", value: "on", displayed: true)
+    cmds << sendEvent(name: "awayholiday", value: "away", displayed: true)
     return cmds
 }
 def awayOff() {
@@ -496,7 +507,15 @@ def awayOff() {
 	def cmds = []
 	if (state.debug) log.debug "${device.label}: awayOff()"
 	parent.childFrostOff(device.deviceNetworkId)
-    cmds << sendEvent(name: "away", value: "off", displayed: true)
+    cmds << sendEvent(name: "awayholiday", value: "off", displayed: true)
+    return cmds
+}
+def holidayOff() {
+	//Cancel holiday mode
+	def cmds = []
+	if (state.debug) log.debug "${device.label}: holidayOff()"
+	parent.childCancelHoliday(device.deviceNetworkId)
+    cmds << sendEvent(name: "awayholiday", value: "off", displayed: true)
     return cmds
 }
 
@@ -574,7 +593,7 @@ def setTempHoldOff() {
 
 
 //These commands are used by Alexa
-def setHeatingSetpoint(number) {
+def setHeatingSetpoint(Integer number) {
 	def cmds = []
 	cmds << sendEvent(name: "thermostatSetpoint", value: number, displayed: false)
 	cmds << sendEvent(name: "heatingSetpoint", value: number, displayed: false)
@@ -582,7 +601,7 @@ def setHeatingSetpoint(number) {
 	parent.childSetTemp(number.toString(), device.deviceNetworkId)
     return cmds
 }
-def setThermostatSetpoint(number) {
+def setThermostatSetpoint(Integer number) {
 	def cmds = []
 	cmds << sendEvent(name: "thermostatSetpoint", value: number, displayed: false)
 	cmds << sendEvent(name: "heatingSetpoint", value: number, displayed: false)
@@ -590,7 +609,7 @@ def setThermostatSetpoint(number) {
 	parent.childSetTemp(number.toString(), device.deviceNetworkId)
     return cmds
 }
-def setTemperature(number) {
+def setTemperature(Integer number) {
 	def cmds = []
 	cmds << sendEvent(name: "thermostatSetpoint", value: number, displayed: false)
 	cmds << sendEvent(name: "heatingSetpoint", value: number, displayed: false)
@@ -599,7 +618,7 @@ def setTemperature(number) {
     return cmds
 }
 
-private timeStringToMins(timeString){
+private timeStringToMins(String timeString){
 	if (timeString?.contains(':')) {
     	def hoursandmins = timeString.split(":")
         def mins = hoursandmins[0].toInteger() * 60 + hoursandmins[1].toInteger()
@@ -608,13 +627,13 @@ private timeStringToMins(timeString){
     }
 }
 
-private minsToTimeString(intMins) {
+private minsToTimeString(Integer intMins) {
 	def timeString =  "${(intMins/60).toInteger()}:${(intMins%60).toString().padLeft(2, "0")}"
     if (state.debug) log.debug "${intMins} converted to ${timeString}"
     return timeString
 }
 
-private timeStringToHoursMins(timeString){
+private timeStringToHoursMins(String timeString){
 	if (timeString?.contains(':')) {
     	def hoursMins = timeString.split(":")
         if (state.debug) log.debug "${timeString} converted to ${hoursMins[0]}:${hoursMins[1]}"
@@ -622,7 +641,7 @@ private timeStringToHoursMins(timeString){
     }
 }
 
-private minsToHoursMins(intMins) {
+private minsToHoursMins(Integer intMins) {
 	def hoursMins = []
     hoursMins << (intMins/60).toInteger()
     hoursMins << (intMins%60).toInteger()
