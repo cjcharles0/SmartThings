@@ -60,6 +60,7 @@ extern "C" uint32_t _SPIFFS_block;
 #define DEFAULT_LISTEN_NOT_ENROL       false
 #define DEFAULT_SLOW_COMMS             false
 #define DEFAULT_WIFI_POWER             205
+#define DEFAULT_INACTIVITY_SECONDS     10
 
 struct SettingsStruct
 {
@@ -81,6 +82,7 @@ struct SettingsStruct
     boolean       ListenNotEnrol;
     boolean       SlowComms;
     byte          WiFiPower;
+    int           inactivity_seconds;
 } Settings;
 
 
@@ -89,9 +91,6 @@ struct SettingsStruct
 #define Firmware_Time __TIME__
 #define JsonHeaderText "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n"
 
-//Inactivity timer wil always default to this value on boot (it is not stored at the moment)
-//This will reset when the Wemos power cycles (mainly because the Powermax does))
-int inactivity_seconds = 20;
 //These define the pins used for triggering alarms (or something else!) and the timer to turn them off
 int activatedPinA = -1;
 int activatedPinB = -1;
@@ -114,9 +113,10 @@ int max_zone_id_enrolled = MAX_ZONE_COUNT;
 //Lets set up MQTT in case it is used/needed
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
-bool mqtt_setup = false;            //This defines whether we have set up the callbacks
-bool mqtt_setup_correct = false;    //This defines whether we are successfully connected
-bool mqtt_connect_fail_count = 0;   //This is the number of times we have failed so we dont keep on trying unless you try saving settings again
+bool mqtt_setup = false;            //This defines whether we have stored all the details for mqtt connection
+long mqtt_last_reconnect = 0;      //This is the number of times we have failed so we dont keep on trying unless you try saving settings again
+
+bool send_telnet_debug = false;     //This is used to forward all alarm messages via telnet
 
 //These functions will load our Settings struct into memory or read it back
 void SaveSettings(void)
@@ -375,7 +375,7 @@ class MyPowerMax : public PowerMaxAlarm
         void CheckInactivityTimers() {
             for (int ix = 1; ix <= max_zone_id_enrolled; ix++) {
                 if (zone_motion[ix]) {
-                    if ((os_getCurrentTimeSec() - zone[ix].lastEventTime) > inactivity_seconds) {
+                    if ((os_getCurrentTimeSec() - zone[ix].lastEventTime) > Settings.inactivity_seconds) {
                         zone_motion[ix] = false;
                         char currentzonename[50];
                         strncpy(currentzonename, this->getZoneName(ix), 49);
@@ -530,8 +530,12 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
     }
     else {
         //Here we should be using MQTT so lets check everything is correct first
-        if (mqtt_setup_correct) {
-            //Here we have MQTT setup correctly so let's send!
+        if (mqtt_setup) {
+            //Here we have MQTT setup correctly so let's send after checking connection
+            if (!mqtt.connected()) {
+              mqttreconnect();
+            }
+            mqtt.loop(); //Just belt and braces to ensure there is nothing pending on the connection
 
             char topic[25];
             topic[0] = '\0';
@@ -563,7 +567,8 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
                 }
                 mqtt.publish(topic, state, true);
 
-                //Also we will publish the alarm problem text here
+                //Also we will publish the alarm problem text here (smal delay to allow publishing)
+                delay(100);
                 strcpy(topic, "alarm/problem_report");
                 pm.generateProblemText();
                 mqtt.publish(topic, alarmProblemText, true);
@@ -612,6 +617,17 @@ void mqttcallback(char* topic, byte* payload, unsigned int length) {
             triggerIOAlarm();
         }
     }
+}
+
+
+boolean mqttreconnect() {
+  if (mqtt.connect("ESP_Powermax_Client", Settings.MQTTUser, Settings.MQTTPass)) {
+    // Once connected, publish a connection message and resubscribe
+    mqtt.setCallback(mqttcallback);
+    mqtt.publish("alarm/panel", "alarm connected", false);
+    mqtt.subscribe("alarm/set");
+  }
+  return mqtt.connected();
 }
 
 void handleRoot() {
@@ -776,7 +792,7 @@ void handleSettings() {
     itoa(Settings.haPort, tempstring, 10);
     client.print(tempstring);
     client.print(",\r\n\"inactivity_seconds\":");
-    client.print((inactivity_seconds));
+    client.print((Settings.inactivity_seconds));
     client.print(",\r\n\"mqtt_username\":\"");
     client.print((Settings.MQTTUser));
     client.print("\",\r\n\"mqtt_password\":\"");
@@ -889,7 +905,7 @@ void handleConfig() {
 
     //If we have received an inactivity timer variable then update it
     if (server.hasArg("inactivity_seconds")) {
-        inactivity_seconds = atoi(server.arg("inactivity_seconds").c_str());
+        Settings.inactivity_seconds = atoi(server.arg("inactivity_seconds").c_str());
 
         client.print("\"inactivity_seconds\":\"");
         client.print(server.arg("inactivity_seconds").c_str());
@@ -951,7 +967,7 @@ void handleConfig() {
         //Update setting
         if (strcmp(server.arg("use_mqtt").c_str(), "true") == 0) {
             Settings.useMQTT = true;
-            mqtt_setup_correct = false;
+            mqtt_setup = false;
         }
         else {
             Settings.useMQTT = false;
@@ -969,7 +985,6 @@ void handleConfig() {
         client.print("\"mqtt_username\":\"");
         client.print(server.arg("mqtt_username").c_str());
         client.print("\",\r\n");
-        mqtt_setup_correct = false;
     }
     //If we have received an MQTT Password then update as needed (and try to connect again)
     if (server.hasArg("mqtt_password")) {
@@ -979,7 +994,6 @@ void handleConfig() {
         client.print("\"mqtt_password\":\"");
         client.print(server.arg("mqtt_password").c_str());
         client.print("\",\r\n");
-        mqtt_setup_correct = false;
     }
 
     //If we have Powermax PIN then update as needed
@@ -993,13 +1007,23 @@ void handleConfig() {
         client.print(server.arg("powermax_pin").c_str());
         client.print("\",\r\n");
     }
+    
+    //If we have received an inactivity_seconds time
+    if (server.hasArg("inactivity_seconds")) {
+        //Update setting
+        Settings.inactivity_seconds = server.arg("inactivity_seconds").toInt();
+        //Respond with current value, even if not needing an update
+        client.print("\"inactivity_seconds\":\"");
+        client.print(server.arg("inactivity_seconds").c_str());
+        client.print("\",\r\n");
+    }
 
 
     client.print("}\r\n");
     client.stop();
 
     //We have tried to do another config, so lets reset mqtt in case this time it connects
-    mqtt_connect_fail_count = 0;
+    mqtt_setup = false;
 
     //Now save the values
     SaveSettings();
@@ -1061,7 +1085,7 @@ void triggerIOAlarm() {
     digitalWrite(12, HIGH);
     pinMode(12, OUTPUT);
     digitalWrite(12, LOW);
-    //Make pin 7 go high/on after first making it an output (D4 on Wemos)
+    //Make pin 4 go high/on after first making it an output (D2 on Wemos)
     digitalWrite(4, LOW);
     pinMode(4, OUTPUT);
     digitalWrite(4, HIGH);
@@ -1193,6 +1217,7 @@ void handleAdvanced() {
     String listennotenrol = server.arg("listennotenrol");
     String slowcomms = server.arg("slowcomms");
     String wifipower = server.arg("wifipower");
+    String inactivity_seconds = server.arg("inactivity_seconds");
 
     if (haip.length() != 0)
     {
@@ -1239,25 +1264,19 @@ void handleAdvanced() {
     if (usemqtt.length() != 0)
     {
         Settings.useMQTT = (usemqtt == "yes");
-        mqtt_setup_correct = false;
-        //We have tried to do another config, so lets reset mqtt in case this time it connects
-        mqtt_connect_fail_count = 0;
+        mqtt_setup = false;
     }
 
     if (mqttuser.length() > 0)
     {
         strncpy(Settings.MQTTUser, mqttuser.c_str(), sizeof(Settings.MQTTUser));
-        mqtt_setup_correct = false;
-        //We have tried to do another config, so lets reset mqtt in case this time it connects
-        mqtt_connect_fail_count = 0;
+        mqtt_setup = false;
     }
 
     if (mqttpass.length() > 0)
     {
         strncpy(Settings.MQTTPass, mqttpass.c_str(), sizeof(Settings.MQTTPass));
-        mqtt_setup_correct = false;
-        //We have tried to do another config, so lets reset mqtt in case this time it connects
-        mqtt_connect_fail_count = 0;
+        mqtt_setup = false;
     }
 
     if (apwhennowifi.length() != 0)
@@ -1289,6 +1308,15 @@ void handleAdvanced() {
     {
         Settings.SlowComms = (slowcomms == "yes");
         pm.updatePMaxVariables();
+    }
+    
+    if (inactivity_seconds.length() != 0)
+    {
+        int int_inactivity_seconds = inactivity_seconds.toInt();
+        if ((int_inactivity_seconds > 0) && (int_inactivity_seconds <= 60))
+        {
+            Settings.inactivity_seconds = int_inactivity_seconds;
+        }
     }
 
     SaveSettings();
@@ -1458,6 +1486,10 @@ void handleAdvanced() {
     }
     reply += F(">No");
     reply += F("</input>");
+    
+    reply += F("<TR><TD>Inactivity timer (default 20s, max 60s):<TD><input type='text' name='inactivity_seconds' value='");
+    reply += Settings.inactivity_seconds;
+    reply += F("'>");
 
     reply += F("<TR><TD><input type=\"button\" value=\"Go back\" onclick=\"history.back()\"><TD><input class=\"button-link\" type='submit' value='Submit'>");
     reply += F("</table></form>");
@@ -1553,6 +1585,10 @@ void setup(void) {
     if (Settings.settingsVersion < 102) {
         Settings.WiFiPower = DEFAULT_WIFI_POWER;
         Settings.settingsVersion = 102;
+    }
+    if (Settings.settingsVersion < 103) {
+        Settings.inactivity_seconds = DEFAULT_INACTIVITY_SECONDS;
+        Settings.settingsVersion = 103;
     }
 
     Settings.resetCounter = 0;
@@ -1859,6 +1895,10 @@ void handleTelnetRequests(PowerMaxAlarm* pm) {
         else if ( c == 'H' ) {
             DEBUG(LOG_NO_FILTER, "Free Heap: %u", ESP.getFreeHeap());
         }
+        else if ( c == 'Q' ) {
+            DEBUG(LOG_NO_FILTER, "Forwarding ALL alarm messages");
+            send_telnet_debug = true;
+        }
         else if ( c == '?' )
         {
             DEBUG(LOG_NO_FILTER, "Allowed commands:");
@@ -1878,6 +1918,7 @@ void handleTelnetRequests(PowerMaxAlarm* pm) {
             DEBUG(LOG_NO_FILTER, "\t r - Request Status Update");
             DEBUG(LOG_NO_FILTER, "\t j - Dump Application Status to JSON");
             DEBUG(LOG_NO_FILTER, "\t H - Get free heap");
+            DEBUG(LOG_NO_FILTER, "\t Q - Send raw debug messages");
 
 
         }
@@ -1953,12 +1994,20 @@ bool serialHandler(PowerMaxAlarm* pm) {
 
                     //New serial1 code
                     Serial1.print("Read1: ");
+                    if (send_telnet_debug) {telnetClient.print("Read1: ");}
                     for (int ix = 0; ix < commandBuffer.size; ix++) {
                         if ((int)commandBuffer.buffer[ix] < 16) Serial1.print("0");
                         Serial1.print(commandBuffer.buffer[ix], HEX);
                         Serial1.print(" ");
+                        if (send_telnet_debug)
+                        {
+                            if ((int)commandBuffer.buffer[ix] < 16) telnetClient.print("0");
+                            telnetClient.print(commandBuffer.buffer[ix], HEX);
+                            telnetClient.print(" ");
+                        }
                     }
                     Serial1.println("");
+                    if (send_telnet_debug) {telnetClient.println("");}
 
                     packetHandled = true;
                     pm->handlePacket(&commandBuffer);
@@ -1981,12 +2030,20 @@ bool serialHandler(PowerMaxAlarm* pm) {
 
         //New serial1 code
         Serial1.print("Read2: ");
+        if (send_telnet_debug) {telnetClient.print("Read1: ");}
         for (int ix = 0; ix < commandBuffer.size; ix++) {
             if ((int)commandBuffer.buffer[ix] < 16) Serial1.print("0");
             Serial1.print(commandBuffer.buffer[ix], HEX);
             Serial1.print(" ");
+            if (send_telnet_debug)
+            {
+               if ((int)commandBuffer.buffer[ix] < 16) telnetClient.print("0");
+               telnetClient.print(commandBuffer.buffer[ix], HEX);
+               telnetClient.print(" ");
+            }
         }
         Serial1.println("");
+        if (send_telnet_debug) {telnetClient.println("");}
 
         packetHandled = true;
         //this will be an invalid packet:
@@ -2026,47 +2083,32 @@ void loop(void) {
     }
 
     if (Settings.useMQTT == true) {
-        //Trying to use MQTT to lets try to connect
+        //If we havent saved mqtt details then do it now
         if (!mqtt_setup) {
             //MQTT not yet fully initialised, so initialise
             mqtt_setup = true;
             mqtt.setCallback(mqttcallback);
+            char tempstring[26];
+            sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
+            mqtt.setServer(tempstring, Settings.haPort);
+            mqtt_last_reconnect = 0;
         }
-        if (!mqtt_setup_correct) {
-            //MQTT initialised, but not with correct IP/port, or disconnected, so fix that!
-            if (mqtt_connect_fail_count < 5) {
-                char tempstring[26];
-                sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
-                mqtt.setServer(tempstring, Settings.haPort);
-                if (!mqtt.connected()) {
-                    if (mqtt.connect("ESP8266Client", Settings.MQTTUser, Settings.MQTTPass )) {
-                        //Woop woop, we connected. Ensure we dont keep trying and subscribe to the set control
-                        mqtt_setup_correct = true;
-                        mqtt_connect_fail_count = 0;
-                        mqtt.subscribe("alarm/set");
-                        mqtt.publish("alarm/panel", "alarm connected", false);
-                    }
-                    else {
-                        //Hmm, failed, not much we can do here as no serial to output to - could reset details but not good while testing
-                        mqtt_connect_fail_count = mqtt_connect_fail_count++;
-                    }
-                }
+      
+        //Non blocking function to either reconnect mqtt or to call loop which allows mqtt connection management
+        if (!mqtt.connected()) {
+          long now = millis();
+          if (now - mqtt_last_reconnect > 8000) {
+            //Over 8s since last connection attempt so try again (to prevent spamming the server too much)
+            mqtt_last_reconnect = now;
+            // Attempt to reconnect
+            if (mqttreconnect()) {
+              mqtt_last_reconnect = 0;
             }
+          }
         }
-        //This loop part is where we will actually process anything posted there by another device
-        if ((mqtt_setup_correct) && (mqtt_connect_fail_count < 5)) {
-            boolean isconnected = false;
-            isconnected = mqtt.loop();
-            if (!isconnected) {
-                //We have dropped connection so try to reconnect
-                if (mqtt.connect("ESP8266Client", Settings.MQTTUser, Settings.MQTTPass )) {
-                    mqtt_connect_fail_count = 0;
-                    mqtt.subscribe("alarm/set");
-                }
-                else {
-                    mqtt_connect_fail_count = mqtt_connect_fail_count++;
-                }
-            }
+        else {
+          // Client connected
+          mqtt.loop();
         }
     }
 
@@ -2217,20 +2259,32 @@ int os_pmComPortWrite(const void* dataToWrite, int bytesToWrite)
 {
     Serial.write((const uint8_t*)dataToWrite, bytesToWrite);
 
+    //New debug code (serial1 and telnet)
+    if (send_telnet_debug) {
+      if (!telnetClient.connected()) {
+        //If no longer connected via telnet then stop debugging messages
+        send_telnet_debug = false;
+      }
+    }
+    
     //New serial1 code
     Serial1.print("Writing: ");
+    if (send_telnet_debug) {telnetClient.print("Writing: ");}
     const uint8_t *tempcharpointer;
     tempcharpointer = (uint8_t *) dataToWrite;
     for (int ix = 0; ix < bytesToWrite; ix++) {
         if ((int)tempcharpointer[ix] < 16) Serial1.print("0");
         Serial1.print(tempcharpointer[ix], HEX);
         Serial1.print(" ");
+        if (send_telnet_debug)
+        {
+            if ((int)tempcharpointer[ix] < 16) telnetClient.print("0");
+            telnetClient.print(tempcharpointer[ix], HEX);
+            telnetClient.print(" ");
+        }
     }
     Serial1.println("");
-
-    //New serial1 code
-    //Serial1.print("Writing: ");
-    //Serial1.write((const uint8_t*)dataToWrite, bytesToWrite);
+    if (send_telnet_debug) {telnetClient.println("");}
 
     return bytesToWrite;
 }
