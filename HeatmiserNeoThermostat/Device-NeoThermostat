@@ -593,7 +593,7 @@ def setTempHoldOff() {
 
 
 //These commands are used by Alexa
-def setHeatingSetpoint(Integer number) {
+def setHeatingSetpoint(number) {
 	def cmds = []
 	cmds << sendEvent(name: "thermostatSetpoint", value: number, displayed: false)
 	cmds << sendEvent(name: "heatingSetpoint", value: number, displayed: false)
@@ -601,7 +601,7 @@ def setHeatingSetpoint(Integer number) {
 	parent.childSetTemp(number.toString(), device.deviceNetworkId)
     return cmds
 }
-def setThermostatSetpoint(Integer number) {
+def setThermostatSetpoint(number) {
 	def cmds = []
 	cmds << sendEvent(name: "thermostatSetpoint", value: number, displayed: false)
 	cmds << sendEvent(name: "heatingSetpoint", value: number, displayed: false)
@@ -609,7 +609,7 @@ def setThermostatSetpoint(Integer number) {
 	parent.childSetTemp(number.toString(), device.deviceNetworkId)
     return cmds
 }
-def setTemperature(Integer number) {
+def setTemperature(number) {
 	def cmds = []
 	cmds << sendEvent(name: "thermostatSetpoint", value: number, displayed: false)
 	cmds << sendEvent(name: "heatingSetpoint", value: number, displayed: false)
@@ -658,7 +658,7 @@ def emergencyHeat() {
 	log.debug "emergencyHeat()"
 }
 def setThermostatMode(chosenmode) {
-	log.debug "setThermostatMode()"
+	log.debug "setThermostatMode() - ${chosenmode}"
 }
 def fanOn() {
 	log.debug "fanOn()"
@@ -670,13 +670,13 @@ def fanCirculate() {
 	log.debug "fanCirculate()"
 }
 def setThermostatFanMode(chosenmode) {
-	log.debug "setThermostatFanMode()"
+	log.debug "setThermostatFanMode() - ${chosenmode}"
 }
 def cool() {
 	log.debug "cool()"
 }
 def setCoolingSetpoint(number) {
-	log.debug "setCoolingSetpoint()"
+	log.debug "setCoolingSetpoint() - ${number}"
 }
 def auto() {
 	log.debug "auto()"
