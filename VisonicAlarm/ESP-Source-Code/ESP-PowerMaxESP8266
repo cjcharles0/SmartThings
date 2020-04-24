@@ -405,9 +405,9 @@ class MyPowerMax : public PowerMaxAlarm
                 SaveSettings();
                 Powerlink_PIN_Code = 0x3622;
             }
-            //Now update slow comms and listen/enrol flags to help with some panels
-            Powerlink_ListenNotEnrol = Settings.ListenNotEnrol;
-            Powerlink_SlowComms = Settings.SlowComms;
+            //Now update slow comms and listen/enrol flags to help with some panels //Failed compilation, commented out 20200424
+            //Powerlink_ListenNotEnrol = Settings.ListenNotEnrol;
+            //Powerlink_SlowComms = Settings.SlowComms;
         }
 
         bool sendCommandCC(int commandvalue) {
@@ -551,7 +551,7 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
             if (zone_or_system_update == ALARM_STATE_CHANGE) {
                 char state[25];
                 strcpy(state, ZoneOrEvent);
-                if ((strcmp(state, "Disarm") == 0) || (strcmp(state, "Disarmed") == 0)) {
+                if ((strcmp(state, "Disarm") == 0) || (strcmp(state, "Disarmed") == 0) || (strcmp(state, "Cancel Alarm") == 0)) {
                     strcpy(state, "disarmed");
                 }
                 if (strcmp(state, "Arm Home") == 0 || strcmp(state, "Quick Arm Home") == 0) {
@@ -563,7 +563,7 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
                 if (strcmp(state, "Interior Alarm") == 0 || strcmp(state, "Perimeter Alarm") == 0 || strcmp(state, "Delay Alarm") == 0 ||
                         strcmp(state, "24h Silent Alarm") == 0 || strcmp(state, "24h Audible Alarm") == 0 || strcmp(state, "Tamper Alarm") == 0 ||
                         strcmp(state, "Panic From Keyfob") == 0 || strcmp(state, "Panic From Control Panel") == 0 || strcmp(state, "Duress") == 0 || strcmp(state, "Confirm Alarm") == 0) {
-                    strcpy(state, "alarm");
+                    strcpy(state, "triggered");
                 }
                 mqtt.publish(topic, state, true);
 
@@ -1007,7 +1007,7 @@ void handleConfig() {
         client.print(server.arg("powermax_pin").c_str());
         client.print("\",\r\n");
     }
-    
+
     //If we have received an inactivity_seconds time
     if (server.hasArg("inactivity_seconds")) {
         //Update setting
@@ -1309,7 +1309,7 @@ void handleAdvanced() {
         Settings.SlowComms = (slowcomms == "yes");
         pm.updatePMaxVariables();
     }
-    
+
     if (inactivity_seconds.length() != 0)
     {
         int int_inactivity_seconds = inactivity_seconds.toInt();
@@ -1486,7 +1486,7 @@ void handleAdvanced() {
     }
     reply += F(">No");
     reply += F("</input>");
-    
+
     reply += F("<TR><TD>Inactivity timer (default 20s, max 60s):<TD><input type='text' name='inactivity_seconds' value='");
     reply += Settings.inactivity_seconds;
     reply += F("'>");
@@ -2093,7 +2093,7 @@ void loop(void) {
             mqtt.setServer(tempstring, Settings.haPort);
             mqtt_last_reconnect = 0;
         }
-      
+
         //Non blocking function to either reconnect mqtt or to call loop which allows mqtt connection management
         if (!mqtt.connected()) {
           long now = millis();
@@ -2266,7 +2266,7 @@ int os_pmComPortWrite(const void* dataToWrite, int bytesToWrite)
         send_telnet_debug = false;
       }
     }
-    
+
     //New serial1 code
     Serial1.print("Writing: ");
     if (send_telnet_debug) {telnetClient.print("Writing: ");}
