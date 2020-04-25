@@ -551,7 +551,7 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
             if (zone_or_system_update == ALARM_STATE_CHANGE) {
                 char state[25];
                 strcpy(state, ZoneOrEvent);
-                if ((strcmp(state, "Disarm") == 0) || (strcmp(state, "Disarmed") == 0)) {
+                if ((strcmp(state, "Disarm") == 0) || (strcmp(state, "Disarmed") == 0) || (strcmp(state, "Cancel Alarm") == 0)) {
                     strcpy(state, "disarmed");
                 }
                 if (strcmp(state, "Arm Home") == 0 || strcmp(state, "Quick Arm Home") == 0) {
@@ -563,7 +563,7 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
                 if (strcmp(state, "Interior Alarm") == 0 || strcmp(state, "Perimeter Alarm") == 0 || strcmp(state, "Delay Alarm") == 0 ||
                         strcmp(state, "24h Silent Alarm") == 0 || strcmp(state, "24h Audible Alarm") == 0 || strcmp(state, "Tamper Alarm") == 0 ||
                         strcmp(state, "Panic From Keyfob") == 0 || strcmp(state, "Panic From Control Panel") == 0 || strcmp(state, "Duress") == 0 || strcmp(state, "Confirm Alarm") == 0) {
-                    strcpy(state, "alarm");
+                    strcpy(state, "triggered");
                 }
                 mqtt.publish(topic, state, true);
 
@@ -2082,7 +2082,7 @@ void loop(void) {
         //wifiManager.process();
     }
 
-    if (Settings.useMQTT == true) {
+    if (Settings.useMQTT == true) {        
         //If we havent saved mqtt details then do it now
         if (!mqtt_setup) {
             //MQTT not yet fully initialised, so initialise
@@ -2093,7 +2093,12 @@ void loop(void) {
             mqtt.setServer(tempstring, Settings.haPort);
             mqtt_last_reconnect = 0;
         }
-      
+
+        //Now run loop to give mqtt some processing time
+        //The delay allows a bit of time for the ESP to manage network connections aswell
+        mqtt.loop();
+        delay(30);
+        
         //Non blocking function to either reconnect mqtt or to call loop which allows mqtt connection management
         if (!mqtt.connected()) {
           long now = millis();
@@ -2108,8 +2113,10 @@ void loop(void) {
         }
         else {
           // Client connected
-          mqtt.loop();
         }
+
+        //And give mqtt even more time to process things
+        mqtt.loop();
     }
 
     //Here we reset manual pin timers in case they are running (i.e. output relay pin is on)
