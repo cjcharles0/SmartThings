@@ -830,7 +830,8 @@ void handleGetZoneNames() {
     //Now setup the webserver connection and JSON creation
     WiFiClient client = server.client();
 
-    strncpy(outputstring, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"namedzonesenrolled\":", sizeofoutputstring);
+    client.print(JsonHeaderText);
+    strncpy(outputstring, "{\"namedzonesenrolled\":", sizeofoutputstring);
     itoa(zones_enrolled_count, numberasstring, 10);
     strncat(outputstring, numberasstring, _max(0, sizeofoutputstring - strlen(outputstring))); //.c_str()
     strncat(outputstring, ",\r\n\"maxzoneid\":", _max(0, sizeofoutputstring - strlen(outputstring)));
@@ -1530,7 +1531,6 @@ void addHeader(boolean showMenu, String& str)
 
 
 void setup(void) {
-    delay(3000);
 
     //First lets make a few common output pins as high just to prevent accidental triggering of the alarm
     //Paranoid process is to set it high, then make it an output, and then set high just to be super safe
@@ -1559,7 +1559,7 @@ void setup(void) {
     }
 
     //Wait 2s before continuing (this is the boot delay)
-    delay(2000);
+    delay(3500);
 
     if ((Settings.settingsVersion < 100) || (Settings.settingsVersion == 255)) {
         str2ip((char*)DEFAULT_HAIP, Settings.haIP);
