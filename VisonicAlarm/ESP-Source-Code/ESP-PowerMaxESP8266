@@ -89,7 +89,7 @@ struct SettingsStruct
 //Useful defines
 #define Firmware_Date __DATE__
 #define Firmware_Time __TIME__
-#define JsonHeaderText "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n"
+#define JsonHeaderText "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nConnection: close\r\n\r\n"
 
 //These define the pins used for triggering alarms (or something else!) and the timer to turn them off
 int activatedPinA = -1;
@@ -621,10 +621,10 @@ void mqttcallback(char* topic, byte* payload, unsigned int length) {
 
 
 boolean mqttreconnect() {
-  if (mqtt.connect("ESP_Powermax_Client", Settings.MQTTUser, Settings.MQTTPass)) {
+  if (mqtt.connect("ESP_Powermax_Client", Settings.MQTTUser, Settings.MQTTPass, "alarm/panel",0,1,"alarm disconnected")) {
     // Once connected, publish a connection message and resubscribe
     mqtt.setCallback(mqttcallback);
-    mqtt.publish("alarm/panel", "alarm connected", false);
+    mqtt.publish("alarm/panel", "alarm connected", true);
     mqtt.subscribe("alarm/set");
   }
   return mqtt.connected();
@@ -830,7 +830,7 @@ void handleGetZoneNames() {
     //Now setup the webserver connection and JSON creation
     WiFiClient client = server.client();
 
-    strncpy(outputstring, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n{\"namedzonesenrolled\":", sizeofoutputstring);
+    strncpy(outputstring, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"namedzonesenrolled\":", sizeofoutputstring);
     itoa(zones_enrolled_count, numberasstring, 10);
     strncat(outputstring, numberasstring, _max(0, sizeofoutputstring - strlen(outputstring))); //.c_str()
     strncat(outputstring, ",\r\n\"maxzoneid\":", _max(0, sizeofoutputstring - strlen(outputstring)));
@@ -1007,7 +1007,7 @@ void handleConfig() {
         client.print(server.arg("powermax_pin").c_str());
         client.print("\",\r\n");
     }
-    
+
     //If we have received an inactivity_seconds time
     if (server.hasArg("inactivity_seconds")) {
         //Update setting
@@ -1309,7 +1309,7 @@ void handleAdvanced() {
         Settings.SlowComms = (slowcomms == "yes");
         pm.updatePMaxVariables();
     }
-    
+
     if (inactivity_seconds.length() != 0)
     {
         int int_inactivity_seconds = inactivity_seconds.toInt();
@@ -1486,7 +1486,7 @@ void handleAdvanced() {
     }
     reply += F(">No");
     reply += F("</input>");
-    
+
     reply += F("<TR><TD>Inactivity timer (default 20s, max 60s):<TD><input type='text' name='inactivity_seconds' value='");
     reply += Settings.inactivity_seconds;
     reply += F("'>");
@@ -1530,6 +1530,7 @@ void addHeader(boolean showMenu, String& str)
 
 
 void setup(void) {
+    delay(3000);
 
     //First lets make a few common output pins as high just to prevent accidental triggering of the alarm
     //Paranoid process is to set it high, then make it an output, and then set high just to be super safe
@@ -2082,7 +2083,7 @@ void loop(void) {
         //wifiManager.process();
     }
 
-    if (Settings.useMQTT == true) {        
+    if (Settings.useMQTT == true) {
         //If we havent saved mqtt details then do it now
         if (!mqtt_setup) {
             //MQTT not yet fully initialised, so initialise
@@ -2098,7 +2099,7 @@ void loop(void) {
         //The delay allows a bit of time for the ESP to manage network connections aswell
         mqtt.loop();
         delay(30);
-        
+
         //Non blocking function to either reconnect mqtt or to call loop which allows mqtt connection management
         if (!mqtt.connected()) {
           long now = millis();
@@ -2108,6 +2109,9 @@ void loop(void) {
             // Attempt to reconnect
             if (mqttreconnect()) {
               mqtt_last_reconnect = 0;
+            }
+            else {
+              mqtt_setup = false; // if it fails to reconnect, try to run the mqtt setup again for next cycle.
             }
           }
         }
@@ -2273,7 +2277,7 @@ int os_pmComPortWrite(const void* dataToWrite, int bytesToWrite)
         send_telnet_debug = false;
       }
     }
-    
+
     //New serial1 code
     Serial1.print("Writing: ");
     if (send_telnet_debug) {telnetClient.print("Writing: ");}
