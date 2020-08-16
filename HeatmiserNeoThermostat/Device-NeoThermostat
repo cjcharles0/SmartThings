@@ -39,6 +39,10 @@ metadata {
         command "refreshinfo" //This is the actual command to update the thermostat from parent
         command "refresh" //This is used for the overall refresh process
         
+        command "boostOneHour" // Custom
+		command "boostHours" // Custom
+		command "boostTempHours" // Custom
+        
         command "setHeatingSetpoint" //Required by ST for thermostat type
         command "setCoolingSetpoint" //Required by ST for thermostat type
         command "setThermostatSetpoint" //Required by ST for thermostat type
@@ -48,7 +52,7 @@ metadata {
         command "cool" //Required by ST for thermostat type
         command "setThermostatMode" //Required by ST for thermostat type
         command "fanOn" //Required by ST for thermostat type
-        command "anAuto" //Required by ST for thermostat type
+        command "fanAuto" //Required by ST for thermostat type
         command "fanCirculate" //Required by ST for thermostat type
         command "setThermostatFanMode" //Required by ST for thermostat type
         command "auto" //Required by ST for thermostat type
@@ -531,6 +535,36 @@ def chooseSetTempOrSetHold(mins = null) {
     	cmds << sendEvent(name: "setTempHold", value: "setHold", displayed: false)
     }
     return cmds
+}
+
+def boostOneHour() {
+	//Get current setpoint and add two degrees to ensure it turns on the heating
+	def desiredTemp = device.currentValue("thermostatSetpoint").toInteger() + 2
+    
+    //Send the command to the Neohub
+	parent.childHold(desiredTemp.toString(), "1", "0", device.deviceNetworkId)
+}
+
+def boostHours(durationHours = null) {
+	//Get current setpoint and add two degrees to ensure it turns on the heating
+	def desiredTemp = device.currentValue("thermostatSetpoint").toInteger() + 2
+    
+    //Also target 1 hour if not specified
+    if (desiredHours==null) desiredHours = 1
+    
+    //Finally send the command to the Neohub
+	parent.childHold(desiredTemp.toString(), desiredHours.toString(), "0", device.deviceNetworkId)
+}
+
+def boostTempHours(desiredTemp = null, desiredHours = null) {
+	//First get current setpoint in case we need to use it (target +2C if not specified)
+	def currentsetpoint = device.currentValue("thermostatSetpoint").toInteger()
+    if (desiredTemp==null) desiredTemp = currentsetpoint + 2
+    //Also target 1 hour if not specified
+    if (desiredHours==null) desiredHours = 1
+    
+    //Finally send the command to the Neohub
+	parent.childHold(desiredTemp.toString(), desiredHours.toString(), "0", device.deviceNetworkId)
 }
 
 def setTempHoldOn() {
