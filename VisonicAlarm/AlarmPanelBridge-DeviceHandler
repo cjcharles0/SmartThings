@@ -14,7 +14,7 @@
  *
  *  Author: Chris Charles (cjcharles0)
  *  Date: 2019-06-14
- *  Version: 1.06
+ *  Version: 1.07
  */
 
 import groovy.json.JsonSlurper
@@ -495,25 +495,29 @@ def parse(description) {
 			case "Violated (Motion)":
 				//log.debug "Got Active motion zone: " + result.zone_id + ", which is called - " + curdevice
 				sendEvent(name: "panelzone"+result.zone_id, value: "active", displayed: false, isStateChange: true)
-				curdevice?.sendEvent(name: "motion", value: "active")
+				curdevice?.sendEvent(name: "motion", value: "active") //Correct message
+				curdevice?.sendEvent(name: "contact", value: "open") //Extra message incase the zone is detected incorrectly
 				break
 
 			case "No Motion":
 				//log.debug "Got Inactive motion zone: " + result.zone_id + ", which is called - " + curdevice
 				sendEvent(name: "panelzone"+result.zone_id, value: "inactive", displayed: false, isStateChange: true)
-				curdevice?.sendEvent(name: "motion", value: "inactive")
+				curdevice?.sendEvent(name: "motion", value: "inactive") //Correct message
+				curdevice?.sendEvent(name: "contact", value: "closed") //Extra message incase the zone is detected incorrectly
 				break
 
 			case "Open":
 				//log.debug "Got Open zone: " + result.zone_id + ", which is called - " + curdevice
 				sendEvent(name: "panelzone"+result.zone_id, value: "open", displayed: false, isStateChange: true)
-				curdevice?.sendEvent(name: "contact", value: "open")
+				curdevice?.sendEvent(name: "contact", value: "open") //Correct message
+				curdevice?.sendEvent(name: "motion", value: "active") //Extra message incase the zone is detected incorrectly
 				break
 
 			case "Closed":
 				//log.debug "Got Closed zone: " + result.zone_id + ", which is called - " + curdevice
 				sendEvent(name: "panelzone"+result.zone_id, value: "closed", displayed: false, isStateChange: true)
-				curdevice?.sendEvent(name: "contact", value: "closed")
+				curdevice?.sendEvent(name: "contact", value: "closed") //Correct message
+				curdevice?.sendEvent(name: "motion", value: "inactive") //Extra message incase the zone is detected incorrectly
 				break
 				
 			case "Bypassed (Motion)":
