@@ -7,12 +7,12 @@
  *  to configure everything except Parameter #2
  *  (it should not cause a problem if you break this rule though)
  * 
- *	Author: Chris Charles and Robin Winbourne
+ *	Author: Chris Charles
  *	Date: 2017-07-10
  */
  
 metadata {
-    definition (name: "Fibaro FGS-222 Double Relay", namespace: "cjcharles0", author: "Chris Charles and Robin Winbourne") {
+    definition (name: "Fibaro FGS-222 Double Relay", namespace: "cjcharles0", author: "Chris Charles") {
         capability "Switch"
         capability "Relay Switch"
         capability "Polling"
