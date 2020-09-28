@@ -1,10 +1,10 @@
 /**
- *  Copyright 2017 Chris Charles
+ *  Copyright 2017 Chris Charles and LeeF Automation
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *	  http://www.apache.org/licenses/LICENSE-2.0
  *
  *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
@@ -12,9 +12,9 @@
  *
  *  Alarm Bridge Controller
  *
- *  Author: Chris Charles (cjcharles0)
- *  Date: 2019-06-14
- *  Version: 1.07
+ *  Author: Chris Charles (cjcharles0) and LeeF Automation
+ *  Date: 2020-09-28
+ *  Version: 1.1
  */
 
 import groovy.json.JsonSlurper
@@ -38,19 +38,18 @@ metadata
 		command "AlarmArmAway"
 		command "AlarmArmHome"
 		command "AlarmDisarm"
-        command "AlarmTrigger"
+		command "AlarmTrigger"
+		
+		command "CreateZoneDevices"
+		command "RemoveZoneDevices"
         
-		command "ZoneCreateChildDevices"
-		command "ZoneRemoveChildDevices"
-		command "ZoneTestFunction"
-        
-        command "childOff"
-        command "childOn"
-        command "childRefresh"
+		command "childOff"
+		command "childOn"
+		command "childRefresh"
 		command "outputoff"
 		command "outputon"
         
-        (1..8).each { n ->
+		(1..8).each { n ->
 			command "on$n"
 			command "off$n"
 		}
@@ -66,12 +65,12 @@ metadata
 	}
 	
 	preferences {
-        input name: "ip", type: "string", title:"Alarm IP Address", description: "e.g. 192.168.1.10", required: true, displayDuringSetup: true
-        input name: "alarmtriggermethod", type: "enum", title: "Method to trigger alarm", options: ["Serial", "IO"], description: "Default IO if unsure", required: true, displayDuringSetup: true
-        input name: "prename", type: "string", title:"Add X before zone name", description: "e.g. 'Zone' would give 'Zone Kitchen'", required: false, displayDuringSetup: true
-        input name: "postname", type: "string", title:"Add X after zone name", description: "e.g. 'Zone' would give 'Kitchen Zone'", required: false, displayDuringSetup: true
-        input name: "inactivityseconds", type: "string", title:"Motion sensor inactivity timeout", description: "override the default of 20s (60s max)", required: false, displayDuringSetup: false
-        input name: "password", type: "password", title:"Password (probably ignore)", required:false, displayDuringSetup:false
+	input name: "ip", type: "string", title:"Alarm IP Address", description: "e.g. 192.168.1.10", required: true, displayDuringSetup: true
+	input name: "alarmtriggermethod", type: "enum", title: "Method to trigger alarm", options: ["Serial", "IO"], description: "Default IO if unsure", required: true, displayDuringSetup: true
+	input name: "prename", type: "string", title:"Add X before zone name", description: "e.g. 'Zone' would give 'Zone Kitchen'", required: false, displayDuringSetup: true
+	input name: "postname", type: "string", title:"Add X after zone name", description: "e.g. 'Zone' would give 'Kitchen Zone'", required: false, displayDuringSetup: true
+	input name: "inactivityseconds", type: "string", title:"Motion sensor inactivity timeout", description: "override the default of 20s (60s max)", required: false, displayDuringSetup: false
+	input name: "password", type: "password", title:"Password (probably ignore)", required:false, displayDuringSetup:false
 	}
 
 	tiles (scale: 2)
@@ -91,50 +90,54 @@ metadata
 			}
 		}
 		
-		standardTile("VArmAway", "armaway", height: 2, width:2, decoration:"flat", inactiveLabel: false)
+		standardTile("AlarmArmAway", "armaway", height: 2, width:2, decoration:"flat", inactiveLabel: false)
 		{
 			state "inactive", label:"Away", action:"AlarmArmAway", backgroundColor:"#D8D8D8"
 			state "changing", label:"Arming Away", action:"", backgroundColor:"#FF9900"
 			state "active", label:"Armed Away", action:"", backgroundColor:"#00CC00"
 		}
-		standardTile("VArmHome", "armhome", height: 2, width: 2, decoration:"flat", inactiveLabel: false)
+		standardTile("AlarmArmHome", "armhome", height: 2, width: 2, decoration:"flat", inactiveLabel: false)
 		{
 			state "inactive", label:"Home", action:"AlarmArmHome", backgroundColor:"#D8D8D8"
 			state "changing", label:"Arming Home", action:"", backgroundColor:"#FF9900"
 			state "active", label:"Armed Home", action:"", backgroundColor:"#00CC00"
 		}
-		standardTile("VDisarm", "disarm", height: 2, width: 2, decoration:"flat", inactiveLabel: false)
+		standardTile("AlarmDisarm", "disarm", height: 2, width: 2, decoration:"flat", inactiveLabel: false)
 		{
 			state "inactive", label:"Disarm", action:"AlarmDisarm", backgroundColor:"#D8D8D8"
 			state "changing", label:"Disarming", action:"", backgroundColor:"#FF9900"
 			state "active", label:"Disarmed", action:"", backgroundColor:"#00CC00"
 		}
 		
-        //This will create a tile for all zones up to 30 (which should cover most boards including Wired ones)
-        //We can have all of these tiles, but probably not display them or it becomes huge!
-		(1..30).each { n ->
+		//This will create a tile for all zones up to 32 (which should cover most boards including Wired ones)
+		//We can have all of these tiles, but probably not display them or it becomes huge!
+		(1..32).each { n ->
 			valueTile("zonename$n", "panelzonename$n", height: 1, width: 2) {
-				state "default", label:'${currentValue}', backgroundColor:"#FFFFFF"}
+				state "default", label:'${currentValue}', backgroundColor:"#FFFFFF"
+			}
 			standardTile("zone$n", "panelzone$n", height: 1, width: 1) {
 				state "inactive", label:"Inactive", action:"", icon:""
 				state "active", label:"Active", action:"", icon:"", backgroundColor:"#00CC00"
 				state "closed", label:"Closed", action:"", icon:""
 				state "open", label:"Open", action:"", icon:"", backgroundColor:"#00CC00"
-				state "bypass", label:"Bypass", action:"", icon:"", backgroundColor:"#CCCC00"
-				}
+				state "bypass", label:"Bypass", action:"", icon:"", backgroundColor:"#FFD800"
+				state "smoke", label:"Smoke", action:"", icon:"", backgroundColor:"#FF3F00"
+				state "clear", label:"Clear", action:"", icon:""
+			}
 		}
         
-        //This will create an output tile as needed for control, not relevant to Visonic
+		//This will create an output tile as needed for control of some alarm panels (not Visonic)
 		(1..8).each { n ->
 			valueTile("outputname$n", "paneloutputname$n", height: 1, width: 2) {
-				state "default", label:'${currentValue}', backgroundColor:"#FFFFFF"}
+				state "default", label:'${currentValue}', backgroundColor:"#FFFFFF"
+			}
 			standardTile("output$n", "paneloutput$n", height: 1, width: 1) {
 				state "on", label:"On", action:"off$n", icon:"", backgroundColor:"#00CC00"
 				state "off", label:"Off", action:"on$n", icon:""
-				}
+			}
 		}
 		
-        valueTile("problemtext", "device.problemtext", decoration: "flat", width: 2, height: 1)
+		valueTile("problemtext", "device.problemtext", decoration: "flat", width: 2, height: 1)
 		{
 			state "default", label:'${currentValue}'
 		}
@@ -156,11 +159,11 @@ metadata
 		
 		standardTile("createtile", "device.createzonedevices", inactiveLabel: false, decoration: "flat", width: 2, height: 1)
 		{
-			state "default", label:'Create Zone Devices', action:"ZoneCreateChildDevices", icon: "st.unknown.zwave.remote-controller"
+			state "default", label:'Create Zone Devices', action:"CreateZoneDevices", icon: "st.unknown.zwave.remote-controller"
 		}
 		standardTile("removetile", "device.removezonedevices", inactiveLabel: false, decoration: "flat", width: 2, height: 1)
 		{
-			state "default", label:'Remove Zone Devices', action:"ZoneRemoveChildDevices", icon: "st.samsung.da.washer_ic_cancel"
+			state "default", label:'Remove Zone Devices', action:"RemoveZoneDevices", icon: "st.samsung.da.washer_ic_cancel"
 		}
 		
 		standardTile("testtile", "device.testfunction", inactiveLabel: false, decoration: "flat", width: 2, height: 1)
@@ -183,20 +186,17 @@ metadata
 	}
 
 	main(["AlarmStatus"])
-	details(["AlarmStatus", "VArmAway", "VArmHome", "VDisarm",
+	details(["AlarmStatus", "AlarmArmAway", "AlarmArmHome", "AlarmDisarm",
 			 
-             // Add all your zones here (zonenameX first then zoneX)- e.g. add "zonename29", "zone29" if you want to display zone 29 in the alarm panel
-			 "zonename1", "zone1", "zonename2", "zone2", "zonename3", "zone3", "zonename4", "zone4",
-			 "zonename5", "zone5", "zonename6", "zone6", "zonename7", "zone7", "zonename8", "zone8", 
+		// Add all your zones here (zonenameX first then zoneX)- e.g. add "zonename29", "zone29" if you want to display zone 29 in the alarm panel
+		"zonename1", "zone1", "zonename2", "zone2", "zonename3", "zone3", "zonename4", "zone4",
+		"zonename5", "zone5", "zonename6", "zone6", "zonename7", "zone7", "zonename8", "zone8", 
 			 
-             // Add any outputs here by uncommenting the row and then add in the same format as for zones, but without output rather than zone
-             //"outputname1", "output1",
+		// Add any outputs here by uncommenting the row and then add in the same format as for zones, but without output rather than zone
+		//"outputname1", "output1",
              
-			 "refresh", "configure", "problemtext", "alarm", "createtile", "removetile", "ip"
-			 //, "testtile" //If you have trouble creating your child zones you can uncomment the start of this line (remove // before the comma)
-			 				//After pressing the "test_function" button on your phone you can re-comment it, to tidy up your alarm panel device.
-							//This is only needed if you have trouble creating your zones.
-			 ])
+		"refresh", "configure", "problemtext", "alarm", "createtile", "removetile", "ip"
+	])
 }
 
 def AlarmArmAway()
@@ -222,6 +222,7 @@ def AlarmArmHome()
 def AlarmDisarm()
 {
 	//Send a disarm command to the alarm and log that it is changing
+	//May need the required output connected to a keyswitch zone
 	log.debug "disarm()"
 	sendEvent(name: "armaway", value: "inactive", displayed: false)
 	sendEvent(name: "armhome", value: "inactive", displayed: false)
@@ -232,32 +233,31 @@ def AlarmDisarm()
 def AlarmTrigger() {
 	//Try to manually trigger the alarm (there are several ways possible - some working!)
 	log.debug "Trying to trigger the alarm by the ${alarmtriggermethod} method"
-    if (alarmtriggermethod != null) {
-    	def outputinfo = ""
-    	switch (alarmtriggermethod) {
-        	case ["IO"]:
-            	outputinfo = "?method=IO"
-                break
-            case ["Serial"]:
-            	outputinfo = "?method=Serial"
-                break
-        }
-    	getAction("/alarm${outputinfo}")
-    }
+	if (alarmtriggermethod != null) {
+		def outputinfo = ""
+		switch (alarmtriggermethod) {
+			case ["IO"]:
+				outputinfo = "?method=IO"
+				break
+			case ["Serial"]:
+				outputinfo = "?method=Serial"
+				break
+		}
+		getAction("/alarm${outputinfo}")
+	}
 }
 
-def ZoneCreateChildDevices()
+def CreateZoneDevices()
 {
-	//This will create child devices
-	//ZoneRemoveChildDevices() //Cant do this here as timing gets messed up
+	//This will create child devices in the /getzonenames response
 	log.debug "Requesting List of Alarm Zones"
 	getAction("/getzonenames")
 }
 
-def ZoneRemoveChildDevices()
+def RemoveZoneDevices()
 {
-	//This will remove child devices
-	log.debug "Removing Child Devices"
+	//This will remove all child devices
+	log.debug "Removing Child Zone Devices"
 	try
 	{
 		getChildDevices()?.each
@@ -274,40 +274,11 @@ def ZoneRemoveChildDevices()
 	}
 	catch (err)
 	{
-		log.debug "Either no children exist or error finding child devices for some reason: ${err}"
+		log.debug "Either no child devices exist or there was an error finding child devices for some reason: ${err}"
 	}
 }
 
-def ZoneTestFunction()
-{
-	//This function just creates a test device due to some random problems that exist when creating children
-	//log.debug "Got here inside the test function"
-	log.debug prename
-	if (device.currentValue("createzonedevices") == "cancreatezonedevices")
-	{
-		log.debug "state correct"
-	}
-	
-	try
-	{
-		def curdevice = getChildDevices()?.find { it.deviceNetworkId == "alarmchildzonetest"}
-		if (curdevice)
-		{
-			//Do nothing as we already have a test device
-		}
-		else
-		{
-			addChildDevice("smartthings", "Motion Detector", "alarmchildzonetest", device.hub.id, [name: "alarm zone test device", label: "Alarm Zone Test Device", completedSetup: true]) //cjcharles0, Alarm Motion Zone
-		}
-	} 
-	catch (e)
-	{
-		log.error "Couldnt find device, probably doesn't exist so safe to add a new one: ${e}"
-		addChildDevice("smartthings", "Motion Detector", "alarmchildzonetest", device.hub.id, [name: "alarm zone test device", label: "Alarm Zone Test Device", completedSetup: true]) //cjcharles0, Alarm Motion Zone
-	}
-}
-
-//This will configure the Wemos to talk to ST
+//This will configure the device to talk to the smart home platform
 def configure()
 {
 	def cmds = []
@@ -316,13 +287,14 @@ def configure()
 	
 	def requeststring = "/config?ip_for_st=${device.hub.getDataValue("localIP")}&port_for_st=${device.hub.getDataValue("localSrvPortTCP")}"
 	
-    if (inactivityseconds?.isInteger()) {
-    	//Inactivityseconds is both populated and an integer, so lets send it to the Wemos
-        requeststring = requeststring + "&inactivity_seconds=${settings.inactivityseconds}"
-    }
+	if (inactivityseconds?.isInteger())
+	{
+		//Inactivityseconds is both populated and an integer, so lets send it to the Wemos
+		requeststring = requeststring + "&inactivity_seconds=${settings.inactivityseconds}"
+	}
 	
 	//log.debug requeststring
-	//Send the details to SmartThings
+	//Send the details to Smart Home platform
 	cmds << getAction(requeststring)
 	return cmds
 }
@@ -334,7 +306,6 @@ def refresh()
 	sendEvent(name: "ip", value: device.hub.getDataValue("localIP")+"\r\nPort: "+device.hub.getDataValue("localSrvPortTCP"), displayed: false)
 	//Now refresh Alarm status
 	getAction("/refresh")
-	//getAction("/getzonenames")
 }
 
 def installed()
@@ -355,7 +326,7 @@ def ping()
 	getAction("/ping")
 }
 
-//These functions are needed due to the alarm device capability and hence will server to arm/disarm the alarm (though unlikely to be called)
+//These functions are needed due to the alarm device capability and hence will serve to arm/disarm the alarm (though unlikely to be called)
 def stop()
 {
 	AlarmDisarm()
@@ -681,9 +652,13 @@ private getAction(uri)
 
 def parseDescriptionAsMap(description)
 {
-	description.split(",").inject([:]) { map, param ->
+	description.split(",").inject([:])
+	{
+		map, param ->
 		def nameAndValue = param.split(":")
-		map += [(nameAndValue[0].trim()):nameAndValue[1].trim()]
+		if (nameAndValue.size() > 1) {
+			map += [(nameAndValue[0].trim()):nameAndValue[1].trim()]
+		}
 	}
 }
 
