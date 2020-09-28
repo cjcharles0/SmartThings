@@ -21,7 +21,7 @@ import groovy.json.JsonSlurper
 
 metadata
 {
-	definition (name: "Alarm Panel Bridge", namespace: "cjcharles0", author: "Chris Charles")
+	definition (name: "Alarm System Bridge", namespace: "cjcharles0", author: "Chris Charles")
 	{
 		capability "Refresh"
 		capability "Configuration"
@@ -110,7 +110,7 @@ metadata
 		}
 		
 		//This will create a tile for all zones up to 32 (which should cover most boards including Wired ones)
-		//We can have all of these tiles, but probably not display them or it becomes huge!
+		//We can have all of these tiles, but not display them or it becomes huge!
 		(1..32).each { n ->
 			valueTile("zonename$n", "panelzonename$n", height: 1, width: 2) {
 				state "default", label:'${currentValue}', backgroundColor:"#FFFFFF"
