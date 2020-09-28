@@ -60,7 +60,7 @@ extern "C" uint32_t _SPIFFS_block;
 #define DEFAULT_LISTEN_NOT_ENROL       false
 #define DEFAULT_SLOW_COMMS             false
 #define DEFAULT_WIFI_POWER             205
-#define DEFAULT_INACTIVITY_SECONDS     10
+#define DEFAULT_INACTIVITY_SECONDS     20
 
 struct SettingsStruct
 {
@@ -493,7 +493,7 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
         //Now build key JSON structure
         if (zone_or_system_update == ALARM_STATE_CHANGE) {
             //Here we have an alarm status change (zone 0) so put the status into JSON
-            strcat(message_text, "{\"stat_str\": \"");
+            strcat(message_text, "{\"update_type\":\"system_status\",\r\n\"stat_str\": \"");
             strcat(message_text, ZoneOrEvent);
             strcat(message_text, "\",\r\n\"stat_update_from\": \"");
             strcat(message_text, WhoOrState);
@@ -505,7 +505,7 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
         }
         else if (zone_or_system_update == ZONE_STATE_CHANGE) {
             //Here we have a zone status change so put this information into JSON
-            strcat(message_text, "{\"zone_id\": \"");
+            strcat(message_text, "{\"update_type\":\"zone_status\",\r\n\"zone_id\": \"");
             strcat(message_text, zoneIDtext);
             strcat(message_text, "\",\r\n\"zone_name\": \"");
             strcat(message_text, ZoneOrEvent);
@@ -527,6 +527,7 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
         }
         //Send the JSON to web port
         client.print(message_text);
+        client.flush();
     }
     else {
         //Here we should be using MQTT so lets check everything is correct first
@@ -741,7 +742,7 @@ void handleStatus() {
     client.print(JsonHeaderText);
 
     if (Settings.ListenNotEnrol) {
-        client.print("{\"stat_str\":\"");
+        client.print("{\"update_type\":\"system_status\",\r\n\"stat_str\":\"");
         client.print(pm.GetStrPmaxSystemStatus(pm.GetSystemStatus()));
         client.print("\",\r\n\"listen_only_mode\":\"enabled\"}\r\n");
     }
@@ -763,7 +764,7 @@ void handleRefresh() {
     WiFiClient client = server.client();
 
     client.print(JsonHeaderText);
-    client.print("{\"stat_str\":\"");
+    client.print("{\"update_type\":\"system_status\",\r\n\"stat_str\":\"");
     client.print(pm.GetStrPmaxSystemStatus(pm.GetSystemStatus()));
 
     client.print("\",\r\n\"problem_report\": \"");
@@ -831,7 +832,7 @@ void handleGetZoneNames() {
     WiFiClient client = server.client();
 
     client.print(JsonHeaderText);
-    strncpy(outputstring, "{\"namedzonesenrolled\":", sizeofoutputstring);
+    strncpy(outputstring, "{\"update_type\":\"create_zones\",\r\n\"namedzonesenrolled\":", sizeofoutputstring);
     itoa(zones_enrolled_count, numberasstring, 10);
     strncat(outputstring, numberasstring, _max(0, sizeofoutputstring - strlen(outputstring))); //.c_str()
     strncat(outputstring, ",\r\n\"maxzoneid\":", _max(0, sizeofoutputstring - strlen(outputstring)));
@@ -1452,7 +1453,7 @@ void handleAdvanced() {
     reply += Settings.WiFiPower;
     reply += F("'>");
 
-    reply += F("<TR><TD>Powermax PIN (default 3622):<TD><input type='text' name='powermaxpin' value='");
+    reply += F("<TR><TD>Powermax Powerlink PIN (default 3622):<TD><input type='text' name='powermaxpin' value='");
     reply += Settings.PowermaxPIN;
     reply += F("'>");
     reply += F("<TR><TD>Entering a Master/Installer PIN that is already registered in the Powermax may help the Wemos enrol");
@@ -2087,11 +2088,12 @@ void loop(void) {
         //If we havent saved mqtt details then do it now
         if (!mqtt_setup) {
             //MQTT not yet fully initialised, so initialise
-            mqtt_setup = true;
+            //mqtt.setKeepAlive();
             mqtt.setCallback(mqttcallback);
             char tempstring[26];
             sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
             mqtt.setServer(tempstring, Settings.haPort);
+            mqtt_setup = true;
             mqtt_last_reconnect = 0;
         }
 
