@@ -536,6 +536,7 @@ private handleZoneStatus(result)
 	{
 		// Check the device type for this child, not using this right now, but could do
 		boolean isMotionDevice = (curdevice.capabilities.find { it.name == "Motion Sensor" } != null)
+		boolean isContactDevice = (curdevice.capabilities.find { it.name == "Contact Sensor" } != null)
 		boolean isSmokeDevice = (curdevice.capabilities.find { it.name == "Smoke Detector" } != null)
 
 		// Now switch action/update based on what has happened to the zone
@@ -543,52 +544,136 @@ private handleZoneStatus(result)
 		{
 			case ["Violated (Motion)", "Active"]:
 				//log.debug "Got Active zone: " + result.zone_id + ", which is called - " + curdevice
-				sendEvent(name: "panelzone"+result.zone_id, value: "active", displayed: false, isStateChange: true)
-				curdevice?.sendEvent(name: "motion", value: "active") // Correct message
-				curdevice?.sendEvent(name: "contact", value: "open") // Extra message incase the zone is detected incorrectly
+				if (isMotionDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "active", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "motion", value: "active") // Correct message
+				}
+				else if (isContactDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "open", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "contact", value: "open")
+				}
+				else if (isSmokeDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "smoke", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "smoke", value: "detected")
+				}
 				break
 
 			case ["No Motion", "Inactive"]:
 				//log.debug "Got Inactive zone: " + result.zone_id + ", which is called - " + curdevice
-				sendEvent(name: "panelzone"+result.zone_id, value: "inactive", displayed: false, isStateChange: true)
-				curdevice?.sendEvent(name: "motion", value: "inactive") // Correct message
-				curdevice?.sendEvent(name: "contact", value: "closed") // Extra message incase the zone is detected incorrectly
+				if (isMotionDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "inactive", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "motion", value: "inactive") // Correct message
+				}
+				else if (isContactDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "closed", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "contact", value: "closed")
+				}
+				else if (isSmokeDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "clear", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "smoke", value: "clear")
+				}
 				break
 
 			case "Open":
 				//log.debug "Got Open zone: " + result.zone_id + ", which is called - " + curdevice
-				sendEvent(name: "panelzone"+result.zone_id, value: "open", displayed: false, isStateChange: true)
-				curdevice?.sendEvent(name: "contact", value: "open") // Correct message
-				curdevice?.sendEvent(name: "motion", value: "active") // Extra message incase the zone is detected incorrectly
+				if (isMotionDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "active", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "motion", value: "active")
+				}
+				else if (isContactDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "open", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "contact", value: "open") // Correct message
+				}
+				else if (isSmokeDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "smoke", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "smoke", value: "detected")
+				}
 				break
 
 			case "Closed":
 				//log.debug "Got Closed zone: " + result.zone_id + ", which is called - " + curdevice
-				sendEvent(name: "panelzone"+result.zone_id, value: "closed", displayed: false, isStateChange: true)
-				curdevice?.sendEvent(name: "contact", value: "closed") // Correct message
-				curdevice?.sendEvent(name: "motion", value: "inactive") // Extra message incase the zone is detected incorrectly
+				if (isMotionDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "inactive", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "motion", value: "inactive")
+				}
+				else if (isContactDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "closed", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "contact", value: "closed") // Correct message
+				}
+				else if (isSmokeDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "clear", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "smoke", value: "clear")
+				}
 				break
 
 			case ["Bypassed (Motion)", "Bypassed - Active"]:
 				//log.debug "Got Active Bypassed zone: " + result.zone_id + ", which is called - " + curdevice
-				sendEvent(name: "panelzone"+result.zone_id, value: "bypass", displayed: false, isStateChange: true)
-				curdevice?.sendEvent(name: "motion", value: "active")
-				curdevice?.sendEvent(name: "contact", value: "open")
+				if (isMotionDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "active", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "motion", value: "active") // Correct message
+				}
+				else if (isContactDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "open", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "contact", value: "open")
+				}
+				else if (isSmokeDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "smoke", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "smoke", value: "detected")
+				}
 				break
 
 			case ["Bypassed", "Bypassed - Inactive"]:
 				//log.debug "Got Inactive Bypassed zone: " + result.zone_id + ", which is called - " + curdevice
-				sendEvent(name: "panelzone"+result.zone_id, value: "bypass", displayed: false, isStateChange: true)
-				curdevice?.sendEvent(name: "motion", value: "inactive")
-				curdevice?.sendEvent(name: "contact", value: "closed")
+				if (isMotionDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "inactive", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "motion", value: "inactive") // Correct message
+				}
+				else if (isContactDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "closed", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "contact", value: "closed")
+				}
+				else if (isSmokeDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "clear", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "smoke", value: "clear")
+				}
 				break
 
             case "Tamper":
 				//log.debug "Got Tamper for zone: " + result.zone_id + ", which is called - " + curdevice
-                // We'll set it to open for now, since at least that gives an indication something is wrong!
-            	sendEvent(name: "panelzone"+result.zone_id, value: "open", displayed: false, isStateChange: true)
-				curdevice?.sendEvent(name: "motion", value: "active")
-				curdevice?.sendEvent(name: "contact", value: "open")
+                // We'll set it to open/motion for now, since at least that gives an indication something is wrong!
+				if (isMotionDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "active", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "motion", value: "active") // Correct message
+				}
+				else if (isContactDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "open", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "contact", value: "open")
+				}
+				else if (isSmokeDevice)
+				{
+					sendEvent(name: "panelzone"+result.zone_id, value: "smoke", displayed: false, isStateChange: true)
+					curdevice?.sendEvent(name: "smoke", value: "detected")
+				}
                 break
 
 			default:
@@ -616,14 +701,14 @@ private handleCreateZones(result)
 		{
 			if (curzone.zonetype == "Output")
             {
-                // This is if you have an output device (not used on Visonic) - First update tile then try to find child device
+                // This is if you have an output device (used on some panels) - First update tile name then try to find child device
                 sendEvent(name: "paneloutputname"+(curzone.zoneid), value: curzone.zonename)
                 log.debug "Trying to add child with name: ${thisname}, ID: alarmchildoutput${curzone.zoneid} to ${device.hub.id}"
                 curchildzone = getChildDevices()?.find { it.deviceNetworkId == "alarmchildoutput${curzone.zoneid}"}
 			}
 			else
 			{
-				// This is the normal panel zone name - First update tile then try to find child device
+				// This is the normal panel zone name - First update tile name then try to find child device
 				sendEvent(name: "panelzonename"+(curzone.zoneid), value: curzone.zonename)
 				log.debug "Trying to add child with name: ${thisname}, ID: alarmchildzone${curzone.zoneid} to ${device.hub.id}"
 				curchildzone = getChildDevices()?.find { it.deviceNetworkId == "alarmchildzone${curzone.zoneid}"}
@@ -656,9 +741,22 @@ private handleCreateZones(result)
 							log.debug "Creating motion zone"
 							break
 
-						case ["Shock", "Vibration", "Smoke", "Gas", "Fire", "Panic", "KeySwitch"]:
+						case ["Smoke", "Fire"]:
+							try
+							{
+								addChildDevice("leefauto", "Smoke Detector", "alarmchildzone${curzone.zone_id}", device.hub.id, [name: thisname])
+							}
+							catch (e)
+							{
+								log.debug "Couldn't create Smoke Detector child device. Is device handler installed ? Creating motion detector zone instead."
+								addChildDevice("smartthings", "Motion Detector", "alarmchildzone${curzone.zone_id}", device.hub.id, [name: thisname])
+							}
+							log.debug "Created Smoke Alarm zone child device"
+							break
+
+						case ["Shock", "Vibration", "Gas", "Panic", "KeySwitch"]:
 							// Add the remainders as motion detectors for now - will display motion/no-motion instead of active/inactive sadly
-							addChildDevice("smartthings", "Motion Detector", "alarmchildzone${curzone.zoneid}", device.hub.id, [name: thiszonename])
+							addChildDevice("smartthings", "Motion Detector", "alarmchildzone${curzone.zoneid}", device.hub.id, [name: thisname])
 							break
 
 						case ["Output"]:
