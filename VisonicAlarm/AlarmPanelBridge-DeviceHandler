@@ -13,8 +13,8 @@
  *  Alarm Bridge Controller
  *
  *  Author: Chris Charles (cjcharles0) and LeeF Automation
- *  Date: 2020-09-28
- *  Version: 1.1
+ *  Date: 2020-10-18
+ *  Version: 1.2
  */
 
 import groovy.json.JsonSlurper
@@ -777,19 +777,19 @@ private handleCreateZones(result)
 			}
 			else
 			{
-				log.debug "Zone name for zone ${curzone.zone_id} is unknown - not adding child device"
+				log.debug "Zone name for zone ${curzone.zoneid} is unknown - not adding child device"
 			}
 		}
 		else
 		{
-			log.debug "Child device named alarmchildzone${curzone.zone_id} already exists - not adding child device"
+			log.debug "Child device named alarmchildzone${curzone.zoneid} already exists - not adding child device"
 		}
 	}
 }
 
 private handleOutputStatus(result)
 {
-	def thisOutputDeviceId = "alarmchildoutput"+result.zone_id
+	def thisOutputDeviceId = "alarmchildoutput"+result.output_id
 	def curdevice = null
 	try
 	{
@@ -798,12 +798,12 @@ private handleOutputStatus(result)
 	}
 	catch (e)
 	{
-		log.debug "Failed to find child zone for zone " + zoneId + "exception ${e}"
+		log.debug "Failed to find child output number " + result.output_id + "exception ${e}"
 	}
 
 	if (curdevice == null)
 	{
-		log.debug "Failed to find child device for zone: " + zoneId + " expecting " + thisOutputDeviceId
+		log.debug "Failed to find child output number " + result.output_id + " expecting " + thisOutputDeviceId
 	}
 	else
 	{
