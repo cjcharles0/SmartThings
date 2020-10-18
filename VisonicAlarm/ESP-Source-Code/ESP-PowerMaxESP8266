@@ -107,6 +107,12 @@ int max_zone_id_enrolled = MAX_ZONE_COUNT;
 #define ALARM_STATE_CHANGE 0
 #define ZONE_STATE_CHANGE 1
 
+#define SEND_TO_SMARTHOME 0
+#define SEND_TO_REQUESTER 1
+
+#define GET_LENGTH 0
+#define SEND_MESSAGE 1
+
 #define CONTACT_ZONE 1
 #define MOTION_ZONE 2
 
@@ -478,19 +484,12 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
     DEBUG(LOG_NOTICE, "Creating JSON string");
 
     if (Settings.useMQTT == false) {
-        char message_text[700];
+        char header_text[200];
+        char message_text[500];
+        header_text[0] = '\0';
         message_text[0] = '\0';
 
-        //We have no MQTT details so lets send to HTTP and hence start with headers
-        strcat(message_text, "POST / HTTP/1.1\r\nHost: ");
-        sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
-        strcat(message_text, tempstring);
-        strcat(message_text, ":");
-        itoa(Settings.haPort, tempstring, 10);
-        strcat(message_text, tempstring);
-        strcat(message_text, "\r\nContent-Type: application/json;charset=utf-8\r\nServer: Visonic Alarm\r\nConnection: close\r\n\r\n");
-
-        //Now build key JSON structure
+        //We have no MQTT details so lets send to HTTP and build JSON message
         if (zone_or_system_update == ALARM_STATE_CHANGE) {
             //Here we have an alarm status change (zone 0) so put the status into JSON
             strcat(message_text, "{\"update_type\":\"system_status\",\r\n\"stat_str\": \"");
@@ -517,6 +516,18 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
         //Close the JSON string
         strcat(message_text, "}\r\n");
 
+        //Now we can build the header text including the length
+        strcat(header_text, "POST / HTTP/1.1\r\nHost: ");
+        sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
+        strcat(header_text, tempstring);
+        strcat(header_text, ":");
+        itoa(Settings.haPort, tempstring, 10);
+        strcat(header_text, tempstring);
+        strcat(header_text, "\r\nContent-Type: application/json;charset=utf-8\r\nContent-Length: ");
+        itoa(strlen(message_text), tempstring, 10);
+        strcat(header_text, tempstring);
+        strcat(header_text, "\r\nServer: Visonic Alarm\r\nConnection: close\r\n\r\n");
+
         //No MQTT details means we should use http for sending the data rather than MQTT
         WiFiClient client;
         char tempstring[26];
@@ -526,6 +537,7 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
             return;
         }
         //Send the JSON to web port
+        client.print(header_text);
         client.print(message_text);
         client.flush();
     }
@@ -668,7 +680,9 @@ void handleRoot() {
             "JSON Endpoints<br>"
             "<a href='/status'>Alarm Status</a><br>"
             "<a href='/settings'>Get Saved IP/port Details</a><br>"
-            "<a href='/getzonenames'>Get Zone Names</a><br><br>"
+            "<a href='/getzonenames'>Show Zone Names</a><br><br>"
+            "Setup SmartHome Platform (create/removezones)<br>"
+            "<a href='/setupsmarthome'>Configure Child Devices</a><br><br>"
             "Configuration<br>"
             "<a href='/advanced'>Configure Settings</a><br>"
             "<a href='/reboot'>Reboot device (soft reset is not as reliable as a power cycle)</a><br>"
@@ -816,8 +830,13 @@ void handleGetZoneNames() {
         if (!server.authenticate("admin", Settings.UIPassword))
             return server.requestAuthentication();
     }
+    sendZoneNames(SEND_TO_REQUESTER);
+}
+
+void sendZoneNames(int SendToWho) {
     //This returns all zone names and types
     int sizeofoutputstring = 170;
+    int actual_message_length = 0;
     int number_of_zones = 0;
     char outputstring[sizeofoutputstring + 1]; //Used to store the output for each zone to speed output
     char currentzonename[50]; //Max zone name of 50 bytes hence copy in one less to ensure an ending
@@ -828,10 +847,52 @@ void handleGetZoneNames() {
     //First update zone count to reduce checking on unused zones
     pm.UpdateZonesEnrolledCount();
 
-    //Now setup the webserver connection and JSON creation
-    WiFiClient client = server.client();
+    //Now setup the send-to connection and create the JSON
+    WiFiClient client;
+    if (SendToWho == SEND_TO_REQUESTER) {
+        //Send to server/requester, and send header first
+        client = server.client();
+        client.print(JsonHeaderText);
+    }
+    else {
+        //Send information to a new client that is actually the SmartHome platform
+        char tempstring[26];
+        sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
+        if (!client.connect(tempstring, Settings.haPort)) {
+            //Serial.println("connection failed");
+            return;
+        }
+        char header_text[200];
+        header_text[0] = '\0';
+        strcat(header_text, "POST / HTTP/1.1\r\nHost: ");
+        sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
+        strcat(header_text, tempstring);
+        strcat(header_text, ":");
+        itoa(Settings.haPort, tempstring, 10);
+        strcat(header_text, tempstring);
+        strcat(header_text, "\r\nContent-Type: application/json;charset=utf-8\r\nServer: Visonic Alarm\r\nContent-Length: ");
+        itoa(GetZoneNames(GET_LENGTH, client), tempstring, 10);
+        strcat(header_text, tempstring);
+        strcat(header_text, "\r\nConnection: close\r\n\r\n");
+        client.print(header_text);
+    }
 
-    client.print(JsonHeaderText);
+    //We've finally worked out header length and sent it, so we can work out the message and send that before closing connection
+    GetZoneNames(SEND_MESSAGE, client);
+    client.stop();
+}
+
+int GetZoneNames(int Send_Or_Length, WiFiClient &client) {
+    //Assemble or send the actual message
+    int length_of_message = 0;
+    int sizeofoutputstring = 170;
+    int number_of_zones = 0;
+    char outputstring[sizeofoutputstring + 1]; //Used to store the output for each zone to speed output
+    char currentzonename[50]; //Max zone name of 50 bytes hence copy in one less to ensure an ending
+    char currentzonetype[50]; //Zone type also 50 char maximum
+    char numberasstring[5];
+    bool export_this_zone; // Should we export the current zone into JSON string
+    
     strncpy(outputstring, "{\"update_type\":\"create_zones\",\r\n\"namedzonesenrolled\":", sizeofoutputstring);
     itoa(zones_enrolled_count, numberasstring, 10);
     strncat(outputstring, numberasstring, _max(0, sizeofoutputstring - strlen(outputstring))); //.c_str()
@@ -839,8 +900,13 @@ void handleGetZoneNames() {
     itoa(max_zone_id_enrolled, numberasstring, 10);
     strncat(outputstring, numberasstring, _max(0, sizeofoutputstring - strlen(outputstring)));
     strncat(outputstring, ",\r\n\"zones\":[\r\n", _max(0, sizeofoutputstring - strlen(outputstring)));
-    client.print(outputstring);
-    //client.write(outputstring, strlen(outputstring));
+
+    if (Send_Or_Length == GET_LENGTH) {
+        length_of_message = length_of_message + strlen(outputstring);
+    }
+    else {
+        client.print(outputstring);
+    }
 
     for (int ix = 1; ix <= max_zone_id_enrolled; ix++) {
         //First convert the zone ID to a char array
@@ -884,14 +950,86 @@ void handleGetZoneNames() {
             strncat(outputstring, "\",\r\n\"zonetype\":\"", _max(0, sizeofoutputstring - strlen(outputstring)));
             strncat(outputstring, currentzonetype, _max(0, sizeofoutputstring - strlen(outputstring)));
             strncat(outputstring, "\"}\r\n", _max(0, sizeofoutputstring - strlen(outputstring)));
-            client.print(outputstring);
             number_of_zones++;
-            //client.write(outputstring, strlen(outputstring));
+
+            if (Send_Or_Length == GET_LENGTH) {
+                length_of_message = length_of_message + strlen(outputstring);
+            }
+            else {
+                client.print(outputstring);
+            }
         }
     }
-    client.println("]}");
+    outputstring[0] = '\0';
+    strcat(outputstring, "]}");
+    if (Send_Or_Length == GET_LENGTH) {
+        length_of_message = length_of_message + strlen(outputstring);
+    }
+    else {
+        client.println(outputstring);
+    }
+    return length_of_message;
+}
 
-    client.stop();
+void handleSetupSmartHome() {
+    if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+        if (!server.authenticate("admin", Settings.UIPassword))
+            return server.requestAuthentication();
+    }
+    //This is a holding page to configure ST zones
+    server.send(200, "text/html", "Send info to SmartHome (Caution)<br><a href='/createchildzones'>Create Child Zones</a><br><a href='/removechildzones'>CAUTION Remove Child Zones</a><br><br>");
+}
+
+void handleRemoveChildZones() {
+    if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+        if (!server.authenticate("admin", Settings.UIPassword))
+            return server.requestAuthentication();
+    }
+    //This attempts to remove
+    server.send(200, "text/html", "Attempting to remove child zones (look at live logging to see any errors)");
+
+    //Now assemble the message ready to send to SmartHome to remove child zones
+    char tempstring[26];
+    
+    char message_text[100];
+    message_text[0] = '\0';
+    strcat(message_text, "{\"update_type\":\"remove_zones\"}");
+
+    char header_text[200];
+    header_text[0] = '\0';
+    strcat(header_text, "POST / HTTP/1.1\r\nHost: ");
+    sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
+    strcat(header_text, tempstring);
+    strcat(header_text, ":");
+    itoa(Settings.haPort, tempstring, 10);
+    strcat(header_text, tempstring);
+    strcat(header_text, "\r\nContent-Type: application/json;charset=utf-8\r\nContent-Length: ");
+    itoa(strlen(message_text), tempstring, 10);
+    strcat(header_text, tempstring);
+    strcat(header_text, "\r\nServer: Visonic Alarm\r\nConnection: close\r\n\r\n");
+
+    //Create the connection and send the message
+    WiFiClient client;
+    sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
+    if (!client.connect(tempstring, Settings.haPort)) {
+        //Serial.println("connection failed");
+        return;
+    }
+    client.print(header_text);
+    client.print(message_text);
+    client.flush();
+}
+
+void handleCreateChildZones() {
+    if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+        if (!server.authenticate("admin", Settings.UIPassword))
+            return server.requestAuthentication();
+    }
+    //This resets the ESP from a web command in case it is needed
+    server.send(200, "text/html", "Attempting to create child zones");
+
+    //Now send the message to SmartHome to create child zones
+    sendZoneNames(SEND_TO_SMARTHOME);
 }
 
 void handleConfig() {
@@ -1138,7 +1276,6 @@ void handleRestart() {
     }
     //This restarts the ESP from a web command in case it is needed
     server.send(200, "text/plain", "ESP is restarting (can also reset with changed URL)");
-    server.stop();
     delay(2000);
     ESP.restart();
 }
@@ -1154,7 +1291,6 @@ void handleReset() {
     }
     //This resets the ESP from a web command in case it is needed
     server.send(200, "text/plain", "ESP is resetting (can also restart with changed URL)");
-    server.stop();
     delay(2000);
     ESP.reset();
 }
@@ -1659,6 +1795,9 @@ void setup(void) {
     server.on("/settings", handleSettings);
     server.on("/refresh", handleRefresh);
     server.on("/getzonenames", handleGetZoneNames);
+    server.on("/setupsmarthome", handleSetupSmartHome);
+    server.on("/createchildzones", handleCreateChildZones);
+    server.on("/removechildzones", handleRemoveChildZones);
     server.on("/config", handleConfig);
     server.on("/advanced", handleAdvanced);
     server.on("/restart", handleRestart);
