@@ -39,6 +39,7 @@ metadata
 		command "AlarmArmHome"
 		command "AlarmDisarm"
 		command "AlarmTrigger"
+		command "AlarmRestart"
 		
 		command "CreateZoneDevices"
 		command "RemoveZoneDevices"
@@ -241,6 +242,13 @@ def AlarmTrigger()
 		}
 		getAction("/alarm${outputinfo}")
 	}
+}
+
+def AlarmRestart()
+{
+	// Can power cycle the ESP device if needed
+	log.debug "restart() - Reboot the ESP (restart is safer than reset)"
+	getAction("/restart")
 }
 
 def CreateZoneDevices()
