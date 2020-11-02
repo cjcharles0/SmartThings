@@ -21,12 +21,13 @@ import groovy.json.JsonSlurper
 
 metadata
 {
-	definition (name: "Alarm System Bridge", namespace: "cjcharles0", author: "Chris Charles")
+	definition (name: "Alarm System Bridge", namespace: "cjcharles0", author: "Chris Charles", mnmn: "SmartThingsCommunity", vid: "3e71321f-f214-301c-9097-e50905814048")
 	{
 		capability "Refresh"
 		capability "Configuration"
 		capability "Alarm"
 		capability "Polling"
+        capability "onionsample20925.alarmStatus"
 		
 		attribute "device.status", "string"
 		attribute "armaway", "string"
@@ -39,7 +40,7 @@ metadata
 		command "AlarmArmHome"
 		command "AlarmDisarm"
 		command "AlarmTrigger"
-		command "AlarmRestart"
+		command "ESPRestart"
 		
 		command "CreateZoneDevices"
 		command "RemoveZoneDevices"
@@ -202,6 +203,7 @@ def AlarmArmAway()
 	sendEvent(name: "armaway", value: "changing")
 	sendEvent(name: "armhome", value: "inactive", displayed: false)
 	sendEvent(name: "disarm", value: "inactive", displayed: false)
+	sendEvent(name: "alarmStatus", value: "armedaway", displayed: false)
 	getAction("/armaway")
 }
 
@@ -212,6 +214,7 @@ def AlarmArmHome()
 	sendEvent(name: "armaway", value: "inactive", displayed: false)
 	sendEvent(name: "armhome", value: "changing")
 	sendEvent(name: "disarm", value: "inactive", displayed: false)
+	sendEvent(name: "alarmStatus", value: "armedhome", displayed: false)
 	getAction("/armhome")
 }
 
@@ -223,6 +226,7 @@ def AlarmDisarm()
 	sendEvent(name: "armaway", value: "inactive", displayed: false)
 	sendEvent(name: "armhome", value: "inactive", displayed: false)
 	sendEvent(name: "disarm", value: "changing")
+	sendEvent(name: "alarmStatus", value: "disarmed", displayed: false)
 	getAction("/disarm")
 }
 
@@ -244,7 +248,7 @@ def AlarmTrigger()
 	}
 }
 
-def AlarmRestart()
+def ESPRestart()
 {
 	// Can power cycle the ESP device if needed
 	log.debug "restart() - Reboot the ESP (restart is safer than reset)"
@@ -268,6 +272,7 @@ def RemoveZoneDevices()
 		{
 			try
 			{
+            	log.debug "Removing ${it.deviceNetworkId} child device"
 				deleteChildDevice(it.deviceNetworkId)
 			}
 			catch (e)
