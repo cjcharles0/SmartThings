@@ -389,30 +389,10 @@ def parse(description) {
     if (result.containsKey("relaydevice")) {
         //Received a device key, hence process the command (null devices will be ignored to make it easier to avoid bugs)
 		if (result.relaydevice == "hubzonesetup") {
-        	//Device is a fake device for setting up zones, so create new devices if they dont exist
-        	for (def currentthermostat in result.relayresult) {
-            	//Iterate through each of the items in the result to create a device
-                for ( item in currentthermostat) {
-                	def thisthermostatname = ""
-                    def thisthermostatdni = ""
-                    //Prepare Thermostat name - prepend and postpend of settings if they exist
-                    if (prestatname != null) {thisthermostatname = thisthermostatname + prestatname + " "}
-                    thisthermostatname = thisthermostatname + item.key
-                    if (poststatname != null) {thisthermostatname = thisthermostatname + " " + poststatname}
-                    //Prepare DNI - Remove spaces and replace with a hyphen to prevent problems with HTML requests
-                    thisthermostatdni = "neostat${item.key.replaceAll(" ", "-")}"
-                    log.debug "Adding child Name: ${thisthermostatname}, DNI: ${thisthermostatdni}, ID: ${item.value} to ${device.hub.id}"
-                    try {
-                    	addChildDevice("cjcharles0", "Neo Thermostat", thisthermostatdni, device.hub.id, [name: thisthermostatname]) //, label: thisthermostatname, completedSetup: true
-                    } catch (e) {
-                        log.debug "Couldnt add device, probably already exists: ${e}"
-                    }
-                }
-        	}
-            //Finally send a refresh command to get the latest info for each thermostat
-            refresh()
+        	if (state.debug) log.debug "hubzonesetup"
+        	createchilddevices(result)
         }
-		if (result.relaydevice == "hubzonerefresh") {
+        if (result.relaydevice == "hubzonerefresh") {
         	//Device is a fake device for refreshing all zone info, so process responses out to each thermostat device
 			log.debug "Should never get here now..."
             for (deviceinfo in result.relayresult.devices) {
@@ -453,7 +433,43 @@ def parse(description) {
             }
         }
     }
+	if (result.containsKey("update_type")) {
+    	if (result.update_type == "create_zones") {
+    		createchilddevices(result)
+        }
+    }
+    if (result.containsKey("update_type")) {
+    	if (result.update_type == "remove_zones") {
+        	removethermostats()
+        }
+    }
     return cmds
+}
+
+private createchilddevices(result) {
+    //Device is a fake device for setting up zones, so create new devices if they dont exist
+    log.debug "creating children"
+    for (def currentthermostat in result.relayresult) {
+      	//Iterate through each of the items in the result to create a device
+        for ( item in currentthermostat) {
+            def thisthermostatname = ""
+            def thisthermostatdni = ""
+            //Prepare Thermostat name - prepend and postpend of settings if they exist
+            if (prestatname != null) {thisthermostatname = thisthermostatname + prestatname + " "}
+            thisthermostatname = thisthermostatname + item.key
+            if (poststatname != null) {thisthermostatname = thisthermostatname + " " + poststatname}
+            //Prepare DNI - Remove spaces and replace with a hyphen to prevent problems with HTML requests
+            thisthermostatdni = "neostat${item.key.replaceAll(" ", "-")}"
+            log.debug "Adding child Name: ${thisthermostatname}, DNI: ${thisthermostatdni}, ID: ${item.value} to ${device.hub.id}"
+            try {
+                addChildDevice("cjcharles0", "Neo Thermostat", thisthermostatdni, device.hub.id, [name: thisthermostatname]) //, label: thisthermostatname, completedSetup: true
+            } catch (e) {
+                log.debug "Couldnt add device, probably already exists: ${e}"
+            }
+        }
+    }
+    //Finally send a refresh command to get the latest info for each thermostat
+    refresh()
 }
 
 def increaseHours() {
