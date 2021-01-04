@@ -107,8 +107,8 @@ unsigned long userPinResetTime = 0;
 char alarmProblemText[SIZE_OF_PROBLEM_TEXT + 1];
 
 //Global variables for the event log
-#define SIZE_OF_EVENT_LOG 20
-unsigned long millisStartTime;
+#define SIZE_OF_EVENT_LOG 40
+//unsigned long millisStartTime;
 byte eventStatusLog[SIZE_OF_EVENT_LOG] = {0};
 unsigned long eventStatusLogTime[SIZE_OF_EVENT_LOG] = {0};
 
@@ -266,7 +266,7 @@ class MyPowerMax : public PowerMaxAlarm
         {
             //call base class implementation first, this will send ACK back and upate internal state.
             PowerMaxAlarm::OnStatusChange(Buff);
-
+            
             //Now send update to ST and use zone 0 as system state not zone
             SendJSONMessage(GetStrPmaxLogEvents(Buff->buffer[4]), GetStrPmaxEventSource(Buff->buffer[3]), 0, ALARM_STATE_CHANGE);
             //now our customization:
@@ -285,7 +285,12 @@ class MyPowerMax : public PowerMaxAlarm
                 case 0x55: //"Disarm"
                     //OnSytemDisarmed(Buff->buffer[3], GetStrPmaxEventSource(Buff->buffer[3]));
                     break;
+                    
+                default:
+                    break;
             }
+            
+            //Log the status change to event log
             logStatusChange(Buff->buffer[4]);
         }
 
@@ -318,6 +323,11 @@ class MyPowerMax : public PowerMaxAlarm
                 if (eventType == ZE_Violated) {
                     zone_motion[zoneId] = true;
                 }
+            }
+            else {
+                //We could do something with non-zone events here
+                //Log the status change to event log
+                logStatusChange(this->stat + 200);
             }
         }
 
@@ -521,23 +531,23 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
         //We have no MQTT details so lets send to HTTP and build JSON message
         if (zone_or_system_update == ALARM_STATE_CHANGE) {
             //Here we have an alarm status change (zone 0) so put the status into JSON
-            strcat(message_text, "{\"update_type\":\"system_status\",\r\n\"stat_str\": \"");
+            strcat_P(message_text, PSTR("{\"update_type\":\"system_status\",\r\n\"stat_str\": \""));
             strcat(message_text, ZoneOrEvent);
-            strcat(message_text, "\",\r\n\"stat_update_from\": \"");
+            strcat_P(message_text, PSTR("\",\r\n\"stat_update_from\": \""));
             strcat(message_text, WhoOrState);
             //For panel messages let's also add on if there are problems
-            strcat(message_text, "\",\r\n\"problem_report\": \"");
+            strcat_P(message_text, PSTR("\",\r\n\"problem_report\": \""));
             pm.generateProblemText();
             strcat(message_text, alarmProblemText);
             strcat(message_text, "\"");
         }
         else if (zone_or_system_update == ZONE_STATE_CHANGE) {
             //Here we have a zone status change so put this information into JSON
-            strcat(message_text, "{\"update_type\":\"zone_status\",\r\n\"zone_id\": \"");
+            strcat_P(message_text, PSTR("{\"update_type\":\"zone_status\",\r\n\"zone_id\": \""));
             strcat(message_text, zoneIDtext);
-            strcat(message_text, "\",\r\n\"zone_name\": \"");
+            strcat_P(message_text, PSTR("\",\r\n\"zone_name\": \""));
             strcat(message_text, ZoneOrEvent);
-            strcat(message_text, "\",\r\n\"zone_status\": \"");
+            strcat_P(message_text, PSTR("\",\r\n\"zone_status\": \""));
             strcat(message_text, WhoOrState);
             strcat(message_text, "\"");
         }
@@ -552,10 +562,10 @@ void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsi
         strcat(header_text, ":");
         itoa(Settings.haPort, tempstring, 10);
         strcat(header_text, tempstring);
-        strcat(header_text, "\r\nContent-Type: application/json;charset=utf-8\r\nContent-Length: ");
+        strcat_P(header_text, PSTR("\r\nContent-Type: application/json;charset=utf-8\r\nContent-Length: "));
         itoa(strlen(message_text), tempstring, 10);
         strcat(header_text, tempstring);
-        strcat(header_text, "\r\nServer: Visonic Alarm\r\nConnection: close\r\n\r\n");
+        strcat_P(header_text, PSTR("\r\nServer: Visonic Alarm\r\nConnection: close\r\n\r\n"));
 
         //No MQTT details means we should use http for sending the data rather than MQTT
         WiFiClient client;
@@ -1019,7 +1029,12 @@ void handleEventHistory() {
         sprintf(tempchar, "%02d-%02d-%02d %02d:%02d:%02d", year(eventStatusLogTime[i]), month(eventStatusLogTime[i]), day(eventStatusLogTime[i]), hour(eventStatusLogTime[i]), minute(eventStatusLogTime[i]), second(eventStatusLogTime[i]));
         strcat(outputstring, tempchar);
         strcat(outputstring, "</td><td>");
-        strcat(outputstring, pm.GetStrPmaxLogEvents(eventStatusLog[i]));
+        if (eventStatusLog[i] < 200) {
+            strcat(outputstring, pm.GetStrPmaxLogEvents(eventStatusLog[i]));
+        }
+        else {
+            strcat(outputstring, pm.GetStrPmaxSystemStatus(eventStatusLog[i] - 200));
+        }
         strcat(outputstring, "</td></tr>");
         client.print(outputstring);
     }
@@ -2280,8 +2295,6 @@ bool serialHandler(PowerMaxAlarm* pm) {
 
 void loop(void) {
     //Some variables to check for message timing
-    static unsigned long lastMsg = 0;
-    static unsigned int MessageSeparation = 300;
     
 #ifdef PM_ENABLE_OTA_UPDATES
     ArduinoOTA.handle();
@@ -2291,17 +2304,22 @@ void loop(void) {
 
     //Here we also check if we need to send any inactivity messages to ST
     pm.CheckInactivityTimers();
+    
     //And update NTP if needed (and also if millis has wrapped)
-    if (timeClient.update()) {
+    static unsigned long lastMillisNumber = 0;
+    timeClient.update();
+    //if (timeClient.update()) {
         //To reach here the NTP update must have happened, so lets update our global time variable
-        millisStartTime = timeClient.getEpochTime() - millis()/1000;
-    }
-    if (millis() < lastMsg) {
-        if (timeClient.forceUpdate()) {
+        //millisStartTime = timeClient.getEpochTime() - millis()/1000;
+    //}
+    if (millis() < lastMillisNumber) {
+        timeClient.forceUpdate();
+        //if (timeClient.forceUpdate()) {
             //Here we have forcefully updates, so lets update global time variable aswell
-            millisStartTime = timeClient.getEpochTime() - millis()/1000;
-        }
+            //millisStartTime = timeClient.getEpochTime() - millis()/1000;
+        //}
     }
+    lastMillisNumber = millis();
 
     if (Settings.APWhenNoWiFi == false) {
         //Here we could do something specific to bring up an access point, or process wifi to remove blocking mode, but not yet
@@ -2383,6 +2401,8 @@ void loop(void) {
     }
 
     //Check serial is being handled
+    static unsigned long lastMsg = 0;
+    static unsigned int MessageSeparation = 300;
     if (serialHandler(&pm) == true)
     {
         lastMsg = millis();
