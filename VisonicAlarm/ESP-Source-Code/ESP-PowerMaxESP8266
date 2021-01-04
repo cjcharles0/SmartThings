@@ -10,6 +10,9 @@
 #include <ArduinoOTA.h>
 #include <PubSubClient.h>
 
+#include <NTPClient.h>
+#include <TimeLib.h>
+
 //////////////////// IMPORTANT DEFINES, ADJUST TO YOUR NEEDS //////////////////////
 //////////////////// COMMENT DEFINE OUT to disable a feature  /////////////////////
 //Telnet allows to see debug logs via network, it allso allows CONTROL of the system if PM_ALLOW_CONTROL is defined
@@ -49,7 +52,7 @@ extern "C" uint32_t _SPIFFS_block;
 #define DEFAULT_USE_STATIC             false
 #define DEFAULT_IP                     "0.0.0.0"
 #define DEFAULT_GATEWAY                "0.0.0.0"
-#define DEFAULT_SUBNET                 "0.0.0.0"
+#define DEFAULT_SUBNET                 "255.255.255.0"
 #define DEFAULT_USE_MQTT               false
 #define DEFAULT_MQTT_USER              ""
 #define DEFAULT_MQTT_PASS              ""
@@ -61,6 +64,7 @@ extern "C" uint32_t _SPIFFS_block;
 #define DEFAULT_SLOW_COMMS             false
 #define DEFAULT_WIFI_POWER             205
 #define DEFAULT_INACTIVITY_SECONDS     20
+#define DEFAULT_NTP_SERVER             "pool.ntp.org"
 
 struct SettingsStruct
 {
@@ -83,6 +87,7 @@ struct SettingsStruct
     boolean       SlowComms;
     byte          WiFiPower;
     int           inactivity_seconds;
+    char          NTPServer[26];
 } Settings;
 
 
@@ -90,6 +95,7 @@ struct SettingsStruct
 #define Firmware_Date __DATE__
 #define Firmware_Time __TIME__
 #define JsonHeaderText "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nConnection: close\r\n\r\n"
+#define HTMLHeaderText "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n"
 
 //These define the pins used for triggering alarms (or something else!) and the timer to turn them off
 int activatedPinA = -1;
@@ -99,6 +105,12 @@ unsigned long userPinResetTime = 0;
 //Global variables for storing the problem text (low battery etc)
 #define SIZE_OF_PROBLEM_TEXT 201
 char alarmProblemText[SIZE_OF_PROBLEM_TEXT + 1];
+
+//Global variables for the event log
+#define SIZE_OF_EVENT_LOG 20
+unsigned long millisStartTime;
+byte eventStatusLog[SIZE_OF_EVENT_LOG] = {0};
+unsigned long eventStatusLogTime[SIZE_OF_EVENT_LOG] = {0};
 
 //Global variables for managing zones
 int zones_enrolled_count = MAX_ZONE_COUNT;
@@ -274,6 +286,7 @@ class MyPowerMax : public PowerMaxAlarm
                     //OnSytemDisarmed(Buff->buffer[3], GetStrPmaxEventSource(Buff->buffer[3]));
                     break;
             }
+            logStatusChange(Buff->buffer[4]);
         }
 
         virtual void OnStatusUpdatePanel(const PlinkBuffer  * Buff)
@@ -444,11 +457,14 @@ MyPowerMax pm;
 ESP8266WebServer server(80);
 ESP8266HTTPUpdateServer httpUpdater;
 
+//Use UDP for NTP client, so define it here
+WiFiUDP udp;
+NTPClient timeClient(udp);
+
 //Now continue with other (more important) things!
 int telnetDbgLevel = LOG_NO_FILTER; //by default only NO FILTER messages are logged to telnet clients
 
 #ifdef PM_ENABLE_LAN_BROADCAST
-WiFiUDP udp;
 unsigned int packetCnt = 0;
 #endif
 
@@ -472,6 +488,19 @@ void LOG(const char *format, ...)
     }
 #endif
     va_end(ap);
+}
+
+void logStatusChange(byte statusByte) {
+    for (int i = SIZE_OF_EVENT_LOG-1; i >= 1; i--) {
+        //Need to shift everything by 1 due to 0 based byte array (1st element at 0th position)
+        eventStatusLog[i] = eventStatusLog[i-1];
+    }
+    for (int i = SIZE_OF_EVENT_LOG-1; i >= 1; i--) {
+        //Need to shift everything by 1 due to 0 based byte array (1st element at 0th position)
+        eventStatusLogTime[i] = eventStatusLogTime[i-1];
+    }
+    eventStatusLog[0] = statusByte;
+    eventStatusLogTime[0] = timeClient.getEpochTime(); //millisStartTime + millis()/1000;
 }
 
 void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsigned char zoneID, int zone_or_system_update) {
@@ -664,11 +693,15 @@ void handleRoot() {
     byte mac[6];
     WiFi.macAddress(mac);
 
-    char szTmp[PRINTF_BUF * 2];
-    sprintf(szTmp, "<html>"
+    char timetemp[20];
+    timeClient.getFormattedTime().toCharArray(timetemp,19);
+    
+    char szTmp[PRINTF_BUF * 2 + 150];
+    sprintf_P(szTmp, PSTR("<html>"
             "<b>Dashboard for esp8266 controlled Visonic Powermax.</b><br><br>"
             "MAC Address: %02X%02X%02X%02X%02X%02X<br>"
             "Uptime: %02d:%02d:%02d.%02d<br>"
+            "Time: %s<br>"
             "Free heap: %u<br><br>"
             "Web Commands<br>"
             "<a href='/disarm' target='_blank'>Disarm</a><br>"
@@ -685,12 +718,13 @@ void handleRoot() {
             "<a href='/setupsmarthome'>Configure Child Devices</a><br><br>"
             "Configuration<br>"
             "<a href='/advanced'>Configure Settings</a><br>"
+            "<a href='/eventhistory'>Show event history</a><br>"
             "<a href='/reboot'>Reboot device (soft reset is not as reliable as a power cycle)</a><br>"
             "<a href='/config'>?X=Y - inactivity_seconds, ip_for_st, port_for_st, mqtt_username, mqtt_password</a><br>"
             "<a href='/update'>Update Firmware</a>"
-            "</html>",
+            "</html>"),
             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
-            (int)days, (int)hours, (int)minutes, (int)val,
+            (int)days, (int)hours, (int)minutes, (int)val, timetemp,
             ESP.getFreeHeap());
     server.send(200, "text/html", szTmp);
 }
@@ -756,9 +790,9 @@ void handleStatus() {
     client.print(JsonHeaderText);
 
     if (Settings.ListenNotEnrol) {
-        client.print("{\"update_type\":\"system_status\",\r\n\"stat_str\":\"");
+        client.print(F("{\"update_type\":\"system_status\",\r\n\"stat_str\":\""));
         client.print(pm.GetStrPmaxSystemStatus(pm.GetSystemStatus()));
-        client.print("\",\r\n\"listen_only_mode\":\"enabled\"}\r\n");
+        client.print(F("\",\r\n\"listen_only_mode\":\"enabled\"}\r\n"));
     }
     else {
         WebOutput out(&client);
@@ -778,10 +812,10 @@ void handleRefresh() {
     WiFiClient client = server.client();
 
     client.print(JsonHeaderText);
-    client.print("{\"update_type\":\"system_status\",\r\n\"stat_str\":\"");
+    client.print(F("{\"update_type\":\"system_status\",\r\n\"stat_str\":\""));
     client.print(pm.GetStrPmaxSystemStatus(pm.GetSystemStatus()));
 
-    client.print("\",\r\n\"problem_report\": \"");
+    client.print(F("\",\r\n\"problem_report\": \""));
     pm.generateProblemText();
     client.print(alarmProblemText);
 
@@ -834,15 +868,6 @@ void handleGetZoneNames() {
 }
 
 void sendZoneNames(int SendToWho) {
-    //This returns all zone names and types
-    int sizeofoutputstring = 170;
-    int actual_message_length = 0;
-    int number_of_zones = 0;
-    char outputstring[sizeofoutputstring + 1]; //Used to store the output for each zone to speed output
-    char currentzonename[50]; //Max zone name of 50 bytes hence copy in one less to ensure an ending
-    char currentzonetype[50]; //Zone type also 50 char maximum
-    char numberasstring[5];
-    bool export_this_zone; // Should we export the current zone into JSON string
 
     //First update zone count to reduce checking on unused zones
     pm.UpdateZonesEnrolledCount();
@@ -870,7 +895,7 @@ void sendZoneNames(int SendToWho) {
         strcat(header_text, ":");
         itoa(Settings.haPort, tempstring, 10);
         strcat(header_text, tempstring);
-        strcat(header_text, "\r\nContent-Type: application/json;charset=utf-8\r\nServer: Visonic Alarm\r\nContent-Length: ");
+        strcat_P(header_text, PSTR("\r\nContent-Type: application/json;charset=utf-8\r\nServer: Visonic Alarm\r\nContent-Length: "));
         itoa(GetZoneNames(GET_LENGTH, client), tempstring, 10);
         strcat(header_text, tempstring);
         strcat(header_text, "\r\nConnection: close\r\n\r\n");
@@ -893,7 +918,7 @@ int GetZoneNames(int Send_Or_Length, WiFiClient &client) {
     char numberasstring[5];
     bool export_this_zone; // Should we export the current zone into JSON string
     
-    strncpy(outputstring, "{\"update_type\":\"create_zones\",\r\n\"namedzonesenrolled\":", sizeofoutputstring);
+    strncpy_P(outputstring, PSTR("{\"update_type\":\"create_zones\",\r\n\"namedzonesenrolled\":"), sizeofoutputstring);
     itoa(zones_enrolled_count, numberasstring, 10);
     strncat(outputstring, numberasstring, _max(0, sizeofoutputstring - strlen(outputstring))); //.c_str()
     strncat(outputstring, ",\r\n\"maxzoneid\":", _max(0, sizeofoutputstring - strlen(outputstring)));
@@ -971,13 +996,44 @@ int GetZoneNames(int Send_Or_Length, WiFiClient &client) {
     return length_of_message;
 }
 
+void handleEventHistory() {
+    if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
+        if (!server.authenticate("admin", Settings.UIPassword))
+            return server.requestAuthentication();
+    }
+    //This returns the current arm state in case it gets out of sync somehow
+    char outputstring[250];
+    char tempchar[30];
+    WiFiClient client = server.client();
+
+    client.print(HTMLHeaderText);
+
+    client.print(F("<html><style>table.center {margin-left: auto; margin-right: auto;} </style><table class=\"center\" style=\"width:400px\"><tr><th>ID</th><th>Time</th><th>Event</th></tr>"));
+    
+    for (int i = 0; i < min(sizeof(eventStatusLog),sizeof(eventStatusLogTime)); i++) {
+        outputstring[0] = '\0';
+        strcat(outputstring, "<tr><td>#");
+        itoa(i, tempchar, 10);
+        strcat(outputstring, tempchar);
+        strcat(outputstring, "</td><td>");
+        sprintf(tempchar, "%02d-%02d-%02d %02d:%02d:%02d", year(eventStatusLogTime[i]), month(eventStatusLogTime[i]), day(eventStatusLogTime[i]), hour(eventStatusLogTime[i]), minute(eventStatusLogTime[i]), second(eventStatusLogTime[i]));
+        strcat(outputstring, tempchar);
+        strcat(outputstring, "</td><td>");
+        strcat(outputstring, pm.GetStrPmaxLogEvents(eventStatusLog[i]));
+        strcat(outputstring, "</td></tr>");
+        client.print(outputstring);
+    }
+    client.print("</table></html>");
+    client.stop();
+}
+
 void handleSetupSmartHome() {
     if (Settings.UIPassword[0] != 0 && Settings.usePassword == true) {
         if (!server.authenticate("admin", Settings.UIPassword))
             return server.requestAuthentication();
     }
-    //This is a holding page to configure ST zones
-    server.send(200, "text/html", "Send info to SmartHome (Caution)<br><a href='/createchildzones'>Create Child Zones</a><br><a href='/removechildzones'>CAUTION Remove Child Zones</a><br><br>");
+    //This is a holding page to configure Smart Home zones
+    server.send(200, "text/html", F("Send info to SmartHome (Caution)<br><a href='/createchildzones'>Create Child Zones</a><br><a href='/removechildzones'>CAUTION Remove Child Zones</a><br><br>"));
 }
 
 void handleRemoveChildZones() {
@@ -986,27 +1042,27 @@ void handleRemoveChildZones() {
             return server.requestAuthentication();
     }
     //This attempts to remove
-    server.send(200, "text/html", "Attempting to remove child zones (look at live logging to see any errors)");
+    server.send(200, "text/html", F("Attempting to remove child zones (look at live logging to see any errors)"));
 
     //Now assemble the message ready to send to SmartHome to remove child zones
     char tempstring[26];
     
     char message_text[100];
     message_text[0] = '\0';
-    strcat(message_text, "{\"update_type\":\"remove_zones\"}");
+    strcat_P(message_text, PSTR("{\"update_type\":\"remove_zones\"}"));
 
     char header_text[200];
     header_text[0] = '\0';
-    strcat(header_text, "POST / HTTP/1.1\r\nHost: ");
+    strcat_P(header_text, PSTR("POST / HTTP/1.1\r\nHost: "));
     sprintf_P(tempstring, PSTR("%u.%u.%u.%u"), Settings.haIP[0], Settings.haIP[1], Settings.haIP[2], Settings.haIP[3]);
     strcat(header_text, tempstring);
     strcat(header_text, ":");
     itoa(Settings.haPort, tempstring, 10);
     strcat(header_text, tempstring);
-    strcat(header_text, "\r\nContent-Type: application/json;charset=utf-8\r\nContent-Length: ");
+    strcat_P(header_text, PSTR("\r\nContent-Type: application/json;charset=utf-8\r\nContent-Length: "));
     itoa(strlen(message_text), tempstring, 10);
     strcat(header_text, tempstring);
-    strcat(header_text, "\r\nServer: Visonic Alarm\r\nConnection: close\r\n\r\n");
+    strcat_P(header_text, PSTR("\r\nServer: Visonic Alarm\r\nConnection: close\r\n\r\n"));
 
     //Create the connection and send the message
     WiFiClient client;
@@ -1026,7 +1082,7 @@ void handleCreateChildZones() {
             return server.requestAuthentication();
     }
     //This resets the ESP from a web command in case it is needed
-    server.send(200, "text/html", "Attempting to create child zones");
+    server.send(200, "text/html", F("Attempting to create child zones"));
 
     //Now send the message to SmartHome to create child zones
     sendZoneNames(SEND_TO_SMARTHOME);
@@ -1212,7 +1268,7 @@ void handleAlarm() {
     }
     else {
         //No command so send a response to say so
-        server.send(200, "text/html", "<html><b>To trigger an alarm you must add the argument 'method' e.g. /alarm?method=12 - but use carefully as some pins may crash the Wemos!</b></html>");
+        server.send(200, "text/html", F("<html><b>To trigger an alarm you must add the argument 'method' e.g. /alarm?method=12 - but use carefully as some pins may crash the Wemos!</b></html>"));
         return;
     }
 }
@@ -1356,6 +1412,7 @@ void handleAdvanced() {
     String slowcomms = server.arg("slowcomms");
     String wifipower = server.arg("wifipower");
     String inactivity_seconds = server.arg("inactivity_seconds");
+    String ntp_server = server.arg("ntp_server");
 
     if (haip.length() != 0)
     {
@@ -1456,6 +1513,15 @@ void handleAdvanced() {
             Settings.inactivity_seconds = int_inactivity_seconds;
         }
     }
+    
+    if (ntp_server.length() > 0)
+    {
+        strncpy(Settings.NTPServer, ntp_server.c_str(), sizeof(Settings.NTPServer));
+    }
+    else
+    {
+        //Disable NTP as server removed, ideally
+    }
 
     SaveSettings();
 
@@ -1550,6 +1616,12 @@ void handleAdvanced() {
     reply += str;
     reply += F("'>");
 
+    reply += F("<TR><TD>Set NTP Server Address/IP:<TD>");
+    reply += F("<input type='text' name='ntp_server' value='");
+    Settings.NTPServer[25] = 0;
+    reply += Settings.NTPServer;
+    reply += F("'>");
+    
     reply += F("<TR><TD>Use MQTT Mode:<TD>");
     reply += F("<input type='radio' name='usemqtt' value='yes'");
     if (Settings.useMQTT) {
@@ -1728,6 +1800,11 @@ void setup(void) {
         Settings.inactivity_seconds = DEFAULT_INACTIVITY_SECONDS;
         Settings.settingsVersion = 103;
     }
+    if (Settings.settingsVersion < 104) {
+        strncpy(Settings.NTPServer, DEFAULT_NTP_SERVER, sizeof(Settings.NTPServer));
+        Settings.settingsVersion = 104;
+    }
+    
 
     Settings.resetCounter = 0;
     SaveSettings();
@@ -1790,8 +1867,14 @@ void setup(void) {
     powerlevel = (float)Settings.WiFiPower / 10.0;
     WiFi.setOutputPower(powerlevel);
 
+    //Now get the current time and ensure it updates to the right server and interval (1 day)
+    timeClient.setUpdateInterval(86400000);
+    timeClient.setPoolServerName(Settings.NTPServer);
+    timeClient.begin();
+
     server.on("/", handleRoot);
     server.on("/status", handleStatus);
+    server.on("/eventhistory", handleEventHistory);
     server.on("/settings", handleSettings);
     server.on("/refresh", handleRefresh);
     server.on("/getzonenames", handleGetZoneNames);
@@ -2196,7 +2279,10 @@ bool serialHandler(PowerMaxAlarm* pm) {
 }
 
 void loop(void) {
-
+    //Some variables to check for message timing
+    static unsigned long lastMsg = 0;
+    static unsigned int MessageSeparation = 300;
+    
 #ifdef PM_ENABLE_OTA_UPDATES
     ArduinoOTA.handle();
 #endif
@@ -2205,6 +2291,17 @@ void loop(void) {
 
     //Here we also check if we need to send any inactivity messages to ST
     pm.CheckInactivityTimers();
+    //And update NTP if needed (and also if millis has wrapped)
+    if (timeClient.update()) {
+        //To reach here the NTP update must have happened, so lets update our global time variable
+        millisStartTime = timeClient.getEpochTime() - millis()/1000;
+    }
+    if (millis() < lastMsg) {
+        if (timeClient.forceUpdate()) {
+            //Here we have forcefully updates, so lets update global time variable aswell
+            millisStartTime = timeClient.getEpochTime() - millis()/1000;
+        }
+    }
 
     if (Settings.APWhenNoWiFi == false) {
         //Here we could do something specific to bring up an access point, or process wifi to remove blocking mode, but not yet
@@ -2285,8 +2382,7 @@ void loop(void) {
         }
     }
 
-    static unsigned long lastMsg = 0;
-    static unsigned int MessageSeparation = 300;
+    //Check serial is being handled
     if (serialHandler(&pm) == true)
     {
         lastMsg = millis();
