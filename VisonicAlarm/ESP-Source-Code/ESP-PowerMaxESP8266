@@ -108,7 +108,6 @@ char alarmProblemText[SIZE_OF_PROBLEM_TEXT + 1];
 
 //Global variables for the event log
 #define SIZE_OF_EVENT_LOG 40
-//unsigned long millisStartTime;
 byte eventStatusLog[SIZE_OF_EVENT_LOG] = {0};
 unsigned long eventStatusLogTime[SIZE_OF_EVENT_LOG] = {0};
 
@@ -327,7 +326,13 @@ class MyPowerMax : public PowerMaxAlarm
             else {
                 //We could do something with non-zone events here
                 //Log the status change to event log
-                logStatusChange(this->stat + 200);
+                byte statusid = this->stat;
+                if (statusid == 0 || statusid == 4 || statusid == 5) {
+                    //Do nothing as already covered by log event
+                }
+                else {
+                    logStatusChange(statusid + 200);
+                }
             }
         }
 
@@ -510,7 +515,7 @@ void logStatusChange(byte statusByte) {
         eventStatusLogTime[i] = eventStatusLogTime[i-1];
     }
     eventStatusLog[0] = statusByte;
-    eventStatusLogTime[0] = timeClient.getEpochTime(); //millisStartTime + millis()/1000;
+    eventStatusLogTime[0] = timeClient.getEpochTime();
 }
 
 void SendJSONMessage(const char* ZoneOrEvent, const char* WhoOrState, const unsigned char zoneID, int zone_or_system_update) {
@@ -908,7 +913,7 @@ void sendZoneNames(int SendToWho) {
         strcat_P(header_text, PSTR("\r\nContent-Type: application/json;charset=utf-8\r\nServer: Visonic Alarm\r\nContent-Length: "));
         itoa(GetZoneNames(GET_LENGTH, client), tempstring, 10);
         strcat(header_text, tempstring);
-        strcat(header_text, "\r\nConnection: close\r\n\r\n");
+        strcat_P(header_text, PSTR("\r\nConnection: close\r\n\r\n"));
         client.print(header_text);
     }
 
@@ -931,10 +936,10 @@ int GetZoneNames(int Send_Or_Length, WiFiClient &client) {
     strncpy_P(outputstring, PSTR("{\"update_type\":\"create_zones\",\r\n\"namedzonesenrolled\":"), sizeofoutputstring);
     itoa(zones_enrolled_count, numberasstring, 10);
     strncat(outputstring, numberasstring, _max(0, sizeofoutputstring - strlen(outputstring))); //.c_str()
-    strncat(outputstring, ",\r\n\"maxzoneid\":", _max(0, sizeofoutputstring - strlen(outputstring)));
+    strncat_P(outputstring, PSTR(",\r\n\"maxzoneid\":"), _max(0, sizeofoutputstring - strlen(outputstring)));
     itoa(max_zone_id_enrolled, numberasstring, 10);
     strncat(outputstring, numberasstring, _max(0, sizeofoutputstring - strlen(outputstring)));
-    strncat(outputstring, ",\r\n\"zones\":[\r\n", _max(0, sizeofoutputstring - strlen(outputstring)));
+    strncat_P(outputstring, PSTR(",\r\n\"zones\":[\r\n"), _max(0, sizeofoutputstring - strlen(outputstring)));
 
     if (Send_Or_Length == GET_LENGTH) {
         length_of_message = length_of_message + strlen(outputstring);
@@ -1112,7 +1117,7 @@ void handleConfig() {
     char tmpString[64];
     WiFiClient client = server.client();
     client.print(JsonHeaderText);
-    client.print("{\"update_config\":\"success\",\r\n");
+    client.print(F("{\"update_config\":\"success\",\r\n"));
 
     //If we have received an inactivity timer variable then update it
     if (server.hasArg("inactivity_seconds")) {
@@ -1361,7 +1366,7 @@ void handleReset() {
             return server.requestAuthentication();
     }
     //This resets the ESP from a web command in case it is needed
-    server.send(200, "text/plain", "ESP is resetting (can also restart with changed URL)");
+    server.send(200, "text/plain", F("ESP is resetting (can also restart with changed URL)"));
     delay(2000);
     ESP.reset();
 }
@@ -2308,16 +2313,8 @@ void loop(void) {
     //And update NTP if needed (and also if millis has wrapped)
     static unsigned long lastMillisNumber = 0;
     timeClient.update();
-    //if (timeClient.update()) {
-        //To reach here the NTP update must have happened, so lets update our global time variable
-        //millisStartTime = timeClient.getEpochTime() - millis()/1000;
-    //}
     if (millis() < lastMillisNumber) {
         timeClient.forceUpdate();
-        //if (timeClient.forceUpdate()) {
-            //Here we have forcefully updates, so lets update global time variable aswell
-            //millisStartTime = timeClient.getEpochTime() - millis()/1000;
-        //}
     }
     lastMillisNumber = millis();
 
@@ -2577,8 +2574,19 @@ int os_cfg_getPacketTimeout()
 }
 
 //see PowerMaxAlarm::setDateTime for details of the parameters, if your OS does not have a RTC clock, simply return false
-bool os_getLocalTime(unsigned char& year, unsigned char& month, unsigned char& day, unsigned char& hour, unsigned char& minutes, unsigned char& seconds)
+bool os_getLocalTime(unsigned char& years, unsigned char& months, unsigned char& days, unsigned char& hours, unsigned char& minutes, unsigned char& seconds)
 {
-    return false; //IZIZTODO
+    unsigned long currenttime = timeClient.getEpochTime();
+
+    //Set the characters according to Visonic specs (e.g. years since 2000)
+    years = year(currenttime) - 2000;
+    months = month(currenttime);
+    days = day(currenttime);
+    hours = hour(currenttime);
+    minutes = minute(currenttime);
+    seconds = second(currenttime);
+    
+    return true;
+    //return false; //IZIZTODO
 }
 //////End of OS specific part of PM library/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
