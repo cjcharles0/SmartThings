@@ -102,6 +102,12 @@ details(["contact1","contact2",
 preferences {
         input name: "Info", type: "paragraph", title:"Device Handler by @cjcharles", description: "Parameter Settings:", displayDuringSetup: false
 
+        input name: "removechildonsave", type: "bool", required: true, //defaultValue: "0",
+            title: "Attempt to remove child devices on saving preferences. \n" +
+                   "False = attempt create children on save (default).\n"
+		   
+        input name: "Info", type: "paragraph", title:"Device Handler by @cjcharles", description: "Parameter Settings:", displayDuringSetup: false
+
         input name: "param1", type: "number", range: "0..65535", required: true, //defaultValue: "0",
             title: "Parameter No. 1 - Input 1 Alarm Cancellation Delay. \n" +
                    "Additional delay after an alarm from input 1 has ceased.\n" +
@@ -233,7 +239,13 @@ def updated() {
 	log.debug "updated()"
 	log.debug "Dont forget to press the button to send config to the device"
     //configure()
-    //createChildDevices()
+    if (removechildonsave == false) {
+        removeChildDevices()
+    }
+    else {
+        createChildDevices()
+	createChildTempDevices()
+    }
 }
 def uninstalled() {
     log.debug "uninstalled()"
