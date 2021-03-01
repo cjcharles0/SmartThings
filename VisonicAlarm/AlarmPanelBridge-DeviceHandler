@@ -200,22 +200,22 @@ def AlarmArmAway()
 {
 	// Send an arm away command to the alarm and log that it is changing
 	log.debug "armaway()"
+	getAction("/armaway")
 	sendEvent(name: "armaway", value: "changing")
 	sendEvent(name: "armhome", value: "inactive", displayed: false)
 	sendEvent(name: "disarm", value: "inactive", displayed: false)
 	sendEvent(name: "alarmStatus", value: "armedaway", displayed: false)
-	getAction("/armaway")
 }
 
 def AlarmArmHome()
 {
 	// Send an arm home command to the alarm and log that it is changing
 	log.debug "armhome()"
+	getAction("/armhome")
 	sendEvent(name: "armaway", value: "inactive", displayed: false)
 	sendEvent(name: "armhome", value: "changing")
 	sendEvent(name: "disarm", value: "inactive", displayed: false)
 	sendEvent(name: "alarmStatus", value: "armedhome", displayed: false)
-	getAction("/armhome")
 }
 
 def AlarmDisarm()
@@ -932,7 +932,7 @@ private handleOutputStatus(result)
 	}
 }
 
-private getAction(uri)
+def getAction(uri)
 { 
 	log.debug "uri ${uri}"
 	updateDNI()
@@ -964,7 +964,7 @@ def parseDescriptionAsMap(description)
 	}
 }
 
-private getHeader(userpass = null)
+def getHeader(userpass = null)
 {
 	def headers = [:]
 	headers.put("Host", getHostAddress())
@@ -975,14 +975,14 @@ private getHeader(userpass = null)
 	return headers
 }
 
-private encodeCredentials(username, password)
+def encodeCredentials(username, password)
 {
 	def userpassascii = "${username}:${password}"
 	def userpass = "Basic " + userpassascii.encodeAsBase64().toString()
 	return userpass
 }
 
-private updateDNI()
+def updateDNI()
 { 
 	if (state.dni != null && state.dni != "" && device.deviceNetworkId != state.dni)
 	{
@@ -990,7 +990,7 @@ private updateDNI()
 	}
 }
 
-private getHostAddress()
+def getHostAddress()
 {
 	if(getDeviceDataByName("ip") && getDeviceDataByName("port"))
 	{
