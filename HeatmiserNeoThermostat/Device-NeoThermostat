@@ -693,7 +693,7 @@ def emergencyHeat() {
 }
 def setThermostatMode(chosenmode) {
 	log.debug "setThermostatMode() - ${chosenmode}"
-	switch chosenmode {
+	switch (chosenmode) {
         	case ["off","Off"]:
 	    	    	log.debug "Setting standby"
 	    	    	away()
