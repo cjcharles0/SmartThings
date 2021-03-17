@@ -350,7 +350,6 @@ def RemoveZoneDevices()
 // This will configure the device to talk to the smart home platform
 def configure()
 {
-	def cmds = []
 	log.debug "Configuring Alarm (getting zones+types, configuring IP/port/timeout)"
 
 	def requeststring = "/config?ip_for_st=${device.hub.getDataValue("localIP")}&port_for_st=${device.hub.getDataValue("localSrvPortTCP")}"
@@ -362,8 +361,7 @@ def configure()
 	}
 
 	// Send the details to Smart Home platform
-	cmds << getAction(requeststring)
-	return cmds
+	getAction(requeststring)
 }
 
 def refresh()
