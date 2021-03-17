@@ -163,10 +163,8 @@ def testcommand(){
 
 //These are the built in commands that ST requires for basic operations
 def configure(){
-	def cmds = []
 	log.debug "Configuring NeoBridge"
-    cmds << getAction("/config?ip_for_st=${device.hub.getDataValue("localIP")}&port_for_st=${device.hub.getDataValue("localSrvPortTCP")}&ip_for_neohub=${neohubip}&port_for_neohub=4242")
-    return cmds
+	getAction("/config?ip_for_st=${device.hub.getDataValue("localIP")}&port_for_st=${device.hub.getDataValue("localSrvPortTCP")}&ip_for_neohub=${neohubip}&port_for_neohub=4242")
 }
 def refreshipaddresses() {
 	def cmds = []
