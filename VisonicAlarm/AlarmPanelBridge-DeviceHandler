@@ -200,22 +200,22 @@ def AlarmArmAway()
 {
 	// Send an arm away command to the alarm and log that it is changing
 	log.debug "armaway()"
-	getAction("/armaway")
 	sendEvent(name: "armaway", value: "changing")
 	sendEvent(name: "armhome", value: "inactive", displayed: false)
 	sendEvent(name: "disarm", value: "inactive", displayed: false)
 	sendEvent(name: "alarmStatus", value: "armedaway", displayed: false)
+	getAction("/armaway")
 }
 
 def AlarmArmHome()
 {
 	// Send an arm home command to the alarm and log that it is changing
 	log.debug "armhome()"
-	getAction("/armhome")
 	sendEvent(name: "armaway", value: "inactive", displayed: false)
 	sendEvent(name: "armhome", value: "changing")
 	sendEvent(name: "disarm", value: "inactive", displayed: false)
 	sendEvent(name: "alarmStatus", value: "armedhome", displayed: false)
+	getAction("/armhome")
 }
 
 def AlarmDisarm()
@@ -223,11 +223,11 @@ def AlarmDisarm()
 	// Send a disarm command to the alarm and log that it is changing
 	// May need the required output connected to a keyswitch zone
 	log.debug "disarm()"
-	getAction("/disarm")
 	sendEvent(name: "armaway", value: "inactive", displayed: false)
 	sendEvent(name: "armhome", value: "inactive", displayed: false)
 	sendEvent(name: "disarm", value: "changing")
 	sendEvent(name: "alarmStatus", value: "disarmed", displayed: false)
+	getAction("/disarm")
 }
 
 def AlarmTrigger()
@@ -259,6 +259,14 @@ def childOn(String dni) {
     	outputon(outputnumber, 0)
     }
     else {
+        try {
+            def childDevice = getChildDevices()?.find { it.deviceNetworkId == dni}
+            //if (childDevice) child.off()
+            if (childDevice) childDevice.sendEvent(name: "switch", value: "off")
+        }
+        catch (e) {
+            log.error "Couldn't find child device, probably doesn't exist and hence no problem: ${e}"
+        }
     	switch (dni) {
                 case ["alarmdisarm"]:
 	    	    	log.debug "Disarming Alarm"
@@ -274,14 +282,6 @@ def childOn(String dni) {
 		        	log.debug "Arming Alarm Home"
 		        	AlarmArmHome()
 		        	break
-        }
-        try {
-            def childDevice = getChildDevices()?.find { it.deviceNetworkId == dni}
-            //if (childDevice) child.off()
-            if (childDevice) childDevice.sendEvent(name: "switch", value: "off")
-        }
-        catch (e) {
-            log.error "Couldn't find child device, probably doesn't exist and hence no problem: ${e}"
         }
     }
     //def switchnum = "on${channelNumber(dni)}"
@@ -350,6 +350,7 @@ def RemoveZoneDevices()
 // This will configure the device to talk to the smart home platform
 def configure()
 {
+	def cmds = []
 	log.debug "Configuring Alarm (getting zones+types, configuring IP/port/timeout)"
 
 	def requeststring = "/config?ip_for_st=${device.hub.getDataValue("localIP")}&port_for_st=${device.hub.getDataValue("localSrvPortTCP")}"
@@ -361,7 +362,8 @@ def configure()
 	}
 
 	// Send the details to Smart Home platform
-	getAction(requeststring)
+	cmds << getAction(requeststring)
+	return cmds
 }
 
 def refresh()
@@ -461,7 +463,7 @@ def parse(description)
 		return
 	}
 	
-	log.debug result
+	log.debug "parse: " + result
 	
 	if (result.containsKey("update_type"))
 	{
@@ -509,7 +511,7 @@ def parse(description)
 	}
 }
 
-private handleRefresh(result)
+def handleRefresh(result)
 {
 	// Handle the alarm status
 	handleAlarmStatus(result.stat_str)
@@ -521,7 +523,7 @@ private handleRefresh(result)
 	}
 }
 
-private handleAlarmStatus(result)
+def handleAlarmStatus(result)
 {
 	// If we receive a key containing 'stat_update_from' then we should add it to the event log and update tile
     // Only do this if an organic update (i.e. not from refresh command)
@@ -598,7 +600,7 @@ private handleAlarmStatus(result)
 	}
 }
 
-private handleZoneStatus(result)
+def handleZoneStatus(result)
 {
 	def thisZoneDeviceId = "alarmchildzone"+result.zone_id
 	def curdevice = null
@@ -767,7 +769,7 @@ private handleZoneStatus(result)
 	}
 }
 
-private handleCreateZones(result)
+def handleCreateZones(result)
 {
 	// This code will pull zone information out of the /getzonenamespage (and allows for zones not in order)
 	log.debug "Handling getzonenames page"
@@ -888,7 +890,7 @@ private handleCreateZones(result)
     }
 }
 
-private handleOutputStatus(result)
+def handleOutputStatus(result)
 {
 	def thisOutputDeviceId = "alarmchildoutput"+result.output_id
 	def curdevice = null
