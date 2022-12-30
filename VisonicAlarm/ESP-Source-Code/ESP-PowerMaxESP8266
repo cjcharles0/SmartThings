@@ -124,6 +124,9 @@ int max_zone_id_enrolled = MAX_ZONE_COUNT;
 #define GET_LENGTH 0
 #define SEND_MESSAGE 1
 
+#define CREATE_ZONES 0
+#define REFRESH_ZONES 1
+
 #define CONTACT_ZONE 1
 #define MOTION_ZONE 2
 
@@ -346,6 +349,16 @@ class MyPowerMax : public PowerMaxAlarm
             return "Unknown";
         }
 
+        const char* getZoneSensorStatus(unsigned char zoneId)
+        {
+            if (zoneId < MAX_ZONE_COUNT &&
+                    zone[zoneId].enrolled)
+            {
+                return GetStrPmaxZoneEventTypes(zone[zoneId].lastEvent);
+            }
+            return "Unknown";
+        }
+
         void UpdateZonesEnrolledCount() {
             int counter = 0;
             for (int ix = 1; ix < MAX_ZONE_COUNT; ix++) {
@@ -390,7 +403,7 @@ class MyPowerMax : public PowerMaxAlarm
                     if ((zone[ix].stat.lowBattery == true) || (zone[ix].stat.lowBattery == true)) {
                         //Here the zone is enrolled and has a problem so first check if we need a comma
                         if (strlen(alarmProblemText) > 0) {
-                            strncat(alarmProblemText, ",\r\n", _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
+                            strncat(alarmProblemText, ", ", _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
                         }
                         //Now add zone name and problem type
                         strncat(alarmProblemText, this->getZoneName(ix), _max(0, SIZE_OF_PROBLEM_TEXT - strlen(alarmProblemText)));
@@ -420,6 +433,8 @@ class MyPowerMax : public PowerMaxAlarm
                             itoa(ix, tempstring, 10);
                             strcat(currentzonename, tempstring);
                         }
+                        //We've got all the zone name information now, so lets put it back to inactive and send a JSON message about this
+                        zone[ix].lastEvent = (ZoneEvent)0x0C;
                         SendJSONMessage(currentzonename, "No Motion", ix, ZONE_STATE_CHANGE);
                     }
                 }
@@ -824,19 +839,8 @@ void handleRefresh() {
             return server.requestAuthentication();
     }
     //This returns the current arm state in case it gets out of sync somehow
-    WiFiClient client = server.client();
+    sendZoneNames(SEND_TO_REQUESTER, REFRESH_ZONES);
 
-    client.print(JsonHeaderText);
-    client.print(F("{\"update_type\":\"system_status\",\r\n\"stat_str\":\""));
-    client.print(pm.GetStrPmaxSystemStatus(pm.GetSystemStatus()));
-
-    client.print(F("\",\r\n\"problem_report\": \""));
-    pm.generateProblemText();
-    client.print(alarmProblemText);
-
-    client.print("\"}\r\n");
-
-    client.stop();
 }
 
 void handleSettings() {
@@ -879,10 +883,10 @@ void handleGetZoneNames() {
         if (!server.authenticate("admin", Settings.UIPassword))
             return server.requestAuthentication();
     }
-    sendZoneNames(SEND_TO_REQUESTER);
+    sendZoneNames(SEND_TO_REQUESTER, CREATE_ZONES);
 }
 
-void sendZoneNames(int SendToWho) {
+void sendZoneNames(int SendToWho, int Create_Or_Refresh) {
 
     //First update zone count to reduce checking on unused zones
     pm.UpdateZonesEnrolledCount();
@@ -911,34 +915,46 @@ void sendZoneNames(int SendToWho) {
         itoa(Settings.haPort, tempstring, 10);
         strcat(header_text, tempstring);
         strcat_P(header_text, PSTR("\r\nContent-Type: application/json;charset=utf-8\r\nServer: Visonic Alarm\r\nContent-Length: "));
-        itoa(GetZoneNames(GET_LENGTH, client), tempstring, 10);
+        itoa(GetZoneNames(GET_LENGTH, Create_Or_Refresh, client), tempstring, 10);
         strcat(header_text, tempstring);
         strcat_P(header_text, PSTR("\r\nConnection: close\r\n\r\n"));
         client.print(header_text);
     }
 
     //We've finally worked out header length and sent it, so we can work out the message and send that before closing connection
-    GetZoneNames(SEND_MESSAGE, client);
+    GetZoneNames(SEND_MESSAGE, Create_Or_Refresh, client);
     client.stop();
 }
 
-int GetZoneNames(int Send_Or_Length, WiFiClient &client) {
+int GetZoneNames(int Send_Or_Length, int Create_Or_Refresh, WiFiClient &client) {
     //Assemble or send the actual message
     int length_of_message = 0;
-    int sizeofoutputstring = 170;
+    int sizeofoutputstring = 250;
     int number_of_zones = 0;
     char outputstring[sizeofoutputstring + 1]; //Used to store the output for each zone to speed output
     char currentzonename[50]; //Max zone name of 50 bytes hence copy in one less to ensure an ending
     char currentzonetype[50]; //Zone type also 50 char maximum
     char numberasstring[5];
     bool export_this_zone; // Should we export the current zone into JSON string
+
+    if (Create_Or_Refresh == CREATE_ZONES) {
+        strncpy_P(outputstring, PSTR("{\"update_type\":\"create_zones\",\r\n\"namedzonesenrolled\":"), sizeofoutputstring);
+        itoa(zones_enrolled_count, numberasstring, 10);
+        strncat(outputstring, numberasstring, _max(0, sizeofoutputstring - strlen(outputstring))); //.c_str()
+        strncat_P(outputstring, PSTR(",\r\n\"maxzoneid\":"), _max(0, sizeofoutputstring - strlen(outputstring)));
+        itoa(max_zone_id_enrolled, numberasstring, 10);
+        strncat(outputstring, numberasstring, _max(0, sizeofoutputstring - strlen(outputstring)));
+    }
+    else {
+        strncpy_P(outputstring, PSTR("{\"update_type\":\"refresh\",\r\n\"stat_str\":\""), sizeofoutputstring);
+        strncat(outputstring, pm.GetStrPmaxSystemStatus(pm.GetSystemStatus()), _max(0, sizeofoutputstring - strlen(outputstring)));
+        strncat_P(outputstring, PSTR("\",\r\n\"problem_report\":\""), _max(0, sizeofoutputstring - strlen(outputstring)));
+        pm.generateProblemText();
+        strncat(outputstring, alarmProblemText, _max(0, sizeofoutputstring - strlen(outputstring)));
+        strncat(outputstring, "\"", _max(0, sizeofoutputstring - strlen(outputstring)));
+    }
     
-    strncpy_P(outputstring, PSTR("{\"update_type\":\"create_zones\",\r\n\"namedzonesenrolled\":"), sizeofoutputstring);
-    itoa(zones_enrolled_count, numberasstring, 10);
-    strncat(outputstring, numberasstring, _max(0, sizeofoutputstring - strlen(outputstring))); //.c_str()
-    strncat_P(outputstring, PSTR(",\r\n\"maxzoneid\":"), _max(0, sizeofoutputstring - strlen(outputstring)));
-    itoa(max_zone_id_enrolled, numberasstring, 10);
-    strncat(outputstring, numberasstring, _max(0, sizeofoutputstring - strlen(outputstring)));
+
     strncat_P(outputstring, PSTR(",\r\n\"zones\":[\r\n"), _max(0, sizeofoutputstring - strlen(outputstring)));
 
     if (Send_Or_Length == GET_LENGTH) {
@@ -983,12 +999,19 @@ int GetZoneNames(int Send_Or_Length, WiFiClient &client) {
                 strncat(outputstring, ",", _max(0, sizeofoutputstring - strlen(outputstring)));
             }
             //Now fill the remaining information about zone id/name/type
-            strncat(outputstring, "{\"zoneid\":", _max(0, sizeofoutputstring - strlen(outputstring)));
+            strncat(outputstring, "{\"zone_id\":", _max(0, sizeofoutputstring - strlen(outputstring)));
             strncat(outputstring, numberasstring, _max(0, sizeofoutputstring - strlen(outputstring))); //.c_str()
-            strncat(outputstring, ",\r\n\"zonename\":\"", _max(0, sizeofoutputstring - strlen(outputstring)));
+            strncat(outputstring, ",\r\n\"zone_name\":\"", _max(0, sizeofoutputstring - strlen(outputstring)));
             strncat(outputstring, currentzonename, _max(0, sizeofoutputstring - strlen(outputstring)));
-            strncat(outputstring, "\",\r\n\"zonetype\":\"", _max(0, sizeofoutputstring - strlen(outputstring)));
-            strncat(outputstring, currentzonetype, _max(0, sizeofoutputstring - strlen(outputstring)));
+
+            if (Create_Or_Refresh == CREATE_ZONES) {
+                strncat(outputstring, "\",\r\n\"zone_type\":\"", _max(0, sizeofoutputstring - strlen(outputstring)));
+                strncat(outputstring, currentzonetype, _max(0, sizeofoutputstring - strlen(outputstring)));
+            }
+            else {
+                strncat(outputstring, "\",\r\n\"zone_status\":\"", _max(0, sizeofoutputstring - strlen(outputstring)));
+                strncat(outputstring, pm.getZoneSensorStatus(ix), _max(0, sizeofoutputstring - strlen(outputstring)));
+            }
             strncat(outputstring, "\"}\r\n", _max(0, sizeofoutputstring - strlen(outputstring)));
             number_of_zones++;
 
@@ -1105,7 +1128,7 @@ void handleCreateChildZones() {
     server.send(200, "text/html", F("Attempting to create child zones"));
 
     //Now send the message to SmartHome to create child zones
-    sendZoneNames(SEND_TO_SMARTHOME);
+    sendZoneNames(SEND_TO_SMARTHOME, CREATE_ZONES);
 }
 
 void handleConfig() {
